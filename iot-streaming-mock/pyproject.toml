@@ -1,0 +1,13 @@
+[project]
+name = "iot-streaming-mock"
+version = "0.1.0"
+description = "IoT sensor simulator with realistic fault modes — broadcasts live sensor readings over TCP"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = []
+
+[project.scripts]
+iot-sim = "main:main"
+
+[tool.setuptools.packages.find]
+include = ["simulator*"]
