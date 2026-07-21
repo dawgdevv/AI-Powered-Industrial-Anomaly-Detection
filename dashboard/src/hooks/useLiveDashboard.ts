@@ -28,6 +28,7 @@ export function useLiveDashboard() {
   const [streamStatus, setStreamStatus] = useState<StreamStatus>('connecting')
   const [streamError, setStreamError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [fleetSize, setFleetSize] = useState(6)
   const pendingSensors = useRef(new Map<string, SensorUpdate>())
   const flushTimer = useRef<number | null>(null)
 
@@ -71,6 +72,7 @@ export function useLiveDashboard() {
         setPolicy(policyData)
         setStreamStatus(health.stream_status)
         setStreamError(health.stream_error)
+        setFleetSize(health.configured_fleet_size)
       } catch (cause) {
         const error = cause instanceof Error ? cause : new Error('API snapshot failed')
         if (!cancelled) {
@@ -139,5 +141,5 @@ export function useLiveDashboard() {
     setIncidents((current) => upsertById(current, updated, 'incident_id'))
   }, [])
 
-  return { sensors, incidents, activity, policy, streamStatus, streamError, loading, updatePolicy, acknowledge, resolve }
+  return { sensors, incidents, activity, policy, streamStatus, streamError, loading, fleetSize, updatePolicy, acknowledge, resolve }
 }

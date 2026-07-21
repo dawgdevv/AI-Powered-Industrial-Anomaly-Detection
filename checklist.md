@@ -15,15 +15,15 @@ This checklist turns the project goals in [context.md](context.md), [PROBLEM.md]
 
 ## Simulator and Raw Data
 
-- [x] Simulate four industrial sensor devices over TCP.
+- [x] Simulate six named water-treatment assets over TCP.
 - [x] Emit temperature, humidity, and vibration readings as JSON Lines.
 - [x] Simulate vibration spike, gradual drift, random missing data, and duplicate data modes.
 - [x] Provide a runnable producer and a live consumer.
 - [x] Provide a simulator end-to-end TCP check.
 - [x] Add `event_id` and `sequence_number` to every reading.
-- [x] Add `equipment_type`, `sensor_type`, and `unit` to every reading.
+- [x] Add asset identity, equipment, area, sensor type, and unit to every reading.
 - [x] Add deterministic random-seed support.
-- [x] Add CLI scenario controls for known fault, novel fault, and data-dropout demos.
+- [x] Add normal/faulty producer modes with seeded transient fault scheduling.
 - [ ] Add a fast, judge-friendly demo mode.
 
 ## Ingestion and Stream Processing
@@ -99,7 +99,7 @@ This checklist turns the project goals in [context.md](context.md), [PROBLEM.md]
 - [x] Add ingestion validation and reconnect tests.
 - [ ] Add retrieval tests for known and novel incidents.
 - [x] Add confidence-threshold and safety-policy tests.
-- [x] Add end-to-end tests for known fault, novel fault, and data-quality scenarios.
+- [x] Add end-to-end tests for normal operation, transient faults, and data quality.
 - [ ] Add trace-creation verification.
 - [ ] Add Docker Compose, `.env.example`, Foundry configuration, and pinned dependencies.
 - [ ] Verify a clean-clone, one-command demo.
@@ -107,4 +107,4 @@ This checklist turns the project goals in [context.md](context.md), [PROBLEM.md]
 
 ## Next Milestone
 
-The highest-value next slice is: **deterministic scenario control → incident aggregation → confidence/abstention policy → OpenTelemetry trace**. This enables the known-fault and novel-fault demos before adding the LLM or more dashboard features.
+The highest-value next slice is: **incident knowledge retrieval → confidence/abstention policy integration → OpenTelemetry trace**. The deterministic two-mode fleet now provides the live fault stream for that work.

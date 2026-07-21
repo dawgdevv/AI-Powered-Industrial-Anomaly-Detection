@@ -45,6 +45,9 @@ class SensorReading:
     temperature: float
     humidity: float | None
     vibration: float | None
+    asset_id: str = ""
+    equipment_name: str = ""
+    area: str = ""
     fault_type: str | None = None
     fault_active: bool = False
     duplicate: bool = False
@@ -61,7 +64,16 @@ class SensorReading:
             f"missing_{name}" for name in REQUIRED_READING_FIELDS if name not in data
         ]
 
-        for name in ("event_id", "device_id", "equipment_type", "sensor_type", "unit"):
+        for name in (
+            "event_id",
+            "device_id",
+            "equipment_type",
+            "sensor_type",
+            "unit",
+            "asset_id",
+            "equipment_name",
+            "area",
+        ):
             value = data.get(name)
             if name in data and (not isinstance(value, str) or not value.strip()):
                 reasons.append(f"invalid_{name}")
@@ -105,6 +117,11 @@ class SensorReading:
             temperature=float(data["temperature"]),
             humidity=None if data["humidity"] is None else float(data["humidity"]),
             vibration=None if data["vibration"] is None else float(data["vibration"]),
+            asset_id=data.get("asset_id", data["device_id"]).strip(),
+            equipment_name=data.get(
+                "equipment_name", data["equipment_type"].replace("_", " ").title()
+            ).strip(),
+            area=data.get("area", "Unassigned area").strip(),
             fault_type=fault_type,
             fault_active=data.get("fault_active", False),
             duplicate=data.get("duplicate", False),

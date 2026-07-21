@@ -5,8 +5,9 @@ export type Sensor = {
   event_id: string
   sequence_number: number
   device_id: string
+  asset_id: string
   equipment_type: string
-  equipment: string
+  equipment_name: string
   area: string
   sensor_type: string
   unit: string
@@ -60,5 +61,6 @@ export type Health = {
   stream_error: string | null
   last_reading_at: number | null
   sensor_count: number
+  configured_fleet_size: number
   incident_count: number
 }

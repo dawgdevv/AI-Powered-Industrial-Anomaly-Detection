@@ -1,83 +1,86 @@
 import unittest
 
-from simulator.producer import build_sensors, generate_scenario_readings
+from simulator.producer import FLEET, PlantSimulator, generate_mode_readings
 from simulator.types import SimulatorConfig
 
-from iot_stream.incidents import Decision, DecisionPolicy, IncidentAggregator
 from iot_stream.pipeline.detectors import DeviceDetectorSet
 from iot_stream.schemas import SensorReading
 
 
-class DeterministicScenarioTests(unittest.TestCase):
-    def test_same_seed_and_scenario_are_identical(self):
-        first = generate_scenario_readings("known_fault", 42, 50)
-        second = generate_scenario_readings("known_fault", 42, 50)
+class FleetAndModeTests(unittest.TestCase):
+    def test_water_treatment_fleet_has_six_unique_named_assets(self):
+        self.assertEqual(len(FLEET), 6)
+        self.assertEqual(len({asset.device_id for asset in FLEET}), 6)
+        self.assertEqual(len({asset.asset_id for asset in FLEET}), 6)
+        self.assertTrue(all(asset.equipment_name and asset.area for asset in FLEET))
+
+    def test_same_seed_and_mode_are_identical(self):
+        first = generate_mode_readings("faulty", 42, 180)
+        second = generate_mode_readings("faulty", 42, 180)
         self.assertEqual(first, second)
 
-    def test_different_seeds_change_sensor_environment(self):
-        first = generate_scenario_readings("novel_fault", 1, 5)
-        second = generate_scenario_readings("novel_fault", 2, 5)
-        self.assertNotEqual(first, second)
+    def test_normal_mode_keeps_all_six_assets_healthy(self):
+        readings = generate_mode_readings("normal", 42, 180)
+        self.assertEqual({item.device_id for item in readings}, {a.device_id for a in FLEET})
+        self.assertTrue(all(not item.fault_active for item in readings))
+        self.assertTrue(all(item.fault_type is None for item in readings))
 
-    def test_known_fault_is_bounded_and_only_affects_sensor_one(self):
-        config = SimulatorConfig(
-            num_devices=4, seed=42, scenario="known_fault", emit_interval=0.1
+    def test_faulty_mode_is_transient_and_only_affects_one_asset_at_a_time(self):
+        simulator = PlantSimulator(
+            SimulatorConfig(seed=42, mode="faulty", num_devices=6),
+            timestamp_origin=1_700_000_000.0,
         )
-        sensors = build_sensors(config, timestamp_origin=1_700_000_000.0)
-        readings = [[sensor.read() for _ in range(150)] for sensor in sensors]
-        self.assertLessEqual(max(item.vibration for item in readings[0]), 3.5)
-        self.assertTrue(any(item.fault_active for item in readings[0]))
-        self.assertTrue(all(not item.fault_active for fleet in readings[1:] for item in fleet))
-        self.assertTrue(all(0.28 <= item.vibration <= 0.32 for fleet in readings[1:] for item in fleet))
-        self.assertTrue(all(0.28 <= item.vibration <= 0.32 for item in readings[0][-50:]))
+        cycles = [simulator.read_cycle() for _ in range(320)]
+        active_cycles = [cycle for cycle in cycles if any(r.fault_active for r in cycle)]
+        self.assertTrue(active_cycles)
+        self.assertTrue(
+            all(sum(reading.fault_active for reading in cycle) == 1 for cycle in active_cycles)
+        )
+        first_fault_device = next(r.device_id for r in active_cycles[0] if r.fault_active)
+        first_active_index = next(
+            index
+            for index, cycle in enumerate(cycles)
+            if any(r.device_id == first_fault_device and r.fault_active for r in cycle)
+        )
+        self.assertTrue(
+            any(
+                not next(r for r in cycle if r.device_id == first_fault_device).fault_active
+                for cycle in cycles[first_active_index + 90 :]
+            )
+        )
+
+    def test_scheduler_only_selects_faults_compatible_with_asset(self):
+        readings = generate_mode_readings("faulty", 7, 500)
+        assets = {asset.device_id: asset for asset in FLEET}
+        active = [reading for reading in readings if reading.fault_active]
+        self.assertTrue(active)
+        self.assertTrue(
+            all(reading.fault_type in assets[reading.device_id].fault_types for reading in active)
+        )
 
 
-class MilestoneIntegrationTests(unittest.TestCase):
-    @staticmethod
-    def run_scenario(name: str, count: int):
-        detectors = DeviceDetectorSet()
-        aggregator = IncidentAggregator()
-        policy = DecisionPolicy()
-        results = []
-        for simulated in generate_scenario_readings(name, 7, count):
+class DetectionBoundaryTests(unittest.TestCase):
+    def test_faulty_telemetry_creates_detector_events(self):
+        detector_sets = {asset.device_id: DeviceDetectorSet() for asset in FLEET}
+        events = []
+        for simulated in generate_mode_readings("faulty", 42, 320):
             reading = SensorReading.from_dict(simulated.to_dict())
-            for event in detectors.check(reading):
-                incident = aggregator.aggregate(event)
-                result = policy.evaluate(incident)
-                aggregator.apply_decision(incident, result)
-                results.append((event, incident, result))
-        return results
-
-    def test_known_fault_reaches_recommendation(self):
-        results = self.run_scenario("known_fault", 60)
-        detector_names = {event.detector for event, _incident, _result in results}
-        decisions = {result.decision for _event, _incident, result in results}
-        self.assertIn("spike", detector_names)
-        self.assertIn("drift", detector_names)
-        self.assertIn(Decision.RECOMMEND, decisions)
-
-    def test_novel_fault_does_not_recommend(self):
-        results = self.run_scenario("novel_fault", 30)
-        decisions = {result.decision for _event, _incident, result in results}
-        self.assertTrue(decisions)
-        self.assertNotIn(Decision.RECOMMEND, decisions)
-
-    def test_data_quality_becomes_alert_not_equipment_recommendation(self):
-        results = self.run_scenario("data_quality", 25)
-        quality_results = [
-            (incident, result)
-            for _event, incident, result in results
-            if incident.category.value == "DATA_QUALITY"
-        ]
-        self.assertTrue(quality_results)
-        self.assertIn(
-            Decision.DATA_QUALITY_ALERT,
-            {result.decision for _incident, result in quality_results},
+            events.extend(detector_sets[reading.device_id].check(reading))
+        self.assertTrue(events)
+        self.assertTrue(
+            {event.detector for event in events}
+            & {"spike", "drift", "dropout", "duplicate_event", "sequence_gap"}
         )
-        self.assertNotIn(
-            Decision.RECOMMEND,
-            {result.decision for _incident, result in quality_results},
-        )
+
+    def test_ground_truth_label_alone_does_not_create_an_incident(self):
+        detector = DeviceDetectorSet()
+        events = []
+        readings = generate_mode_readings("normal", 42, 80, num_devices=1)
+        for simulated in readings:
+            payload = simulated.to_dict()
+            payload.update(fault_type="fabricated_label", fault_active=True)
+            events.extend(detector.check(SensorReading.from_dict(payload)))
+        self.assertEqual(events, [])
 
 
 if __name__ == "__main__":

@@ -15,6 +15,9 @@ class RuntimeStoreTests(unittest.IsolatedAsyncioTestCase):
             await store.record_reading(reading(sequence, vibration=sequence / 10))
         snapshot = store.sensor_snapshot("sensor-1")
         self.assertEqual(snapshot["trend"], [0.3, 0.4, 0.5])
+        self.assertEqual(snapshot["asset_id"], "P-101")
+        self.assertEqual(snapshot["equipment_name"], "Raw Water Intake Pump")
+        self.assertEqual(snapshot["area"], "Intake Station")
         self.assertNotIn("trend", store.sensor_update("sensor-1"))
 
     async def test_priority_event_survives_full_client_queue(self):
@@ -65,6 +68,9 @@ class ApiRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.client.get("/api/sensors")).status_code, 200)
         self.assertEqual((await self.client.get("/api/incidents")).json(), [])
         self.assertEqual((await self.client.get("/api/policy")).json()["spike_weight"], 0.45)
+        self.assertEqual(
+            (await self.client.get("/api/health")).json()["configured_fleet_size"], 6
+        )
 
     async def test_valid_policy_update_and_invalid_update(self):
         valid = {

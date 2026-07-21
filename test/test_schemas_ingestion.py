@@ -35,6 +35,16 @@ class SensorSchemaTests(unittest.TestCase):
         self.assertIsNone(parsed.humidity)
         self.assertIsNone(parsed.vibration)
 
+    def test_older_payload_gets_safe_asset_metadata_fallbacks(self):
+        payload = reading().to_dict()
+        payload.pop("asset_id")
+        payload.pop("equipment_name")
+        payload.pop("area")
+        parsed = SensorReading.from_dict(payload)
+        self.assertEqual(parsed.asset_id, "sensor-1")
+        self.assertEqual(parsed.equipment_name, "Centrifugal Pump")
+        self.assertEqual(parsed.area, "Unassigned area")
+
 
 class IngestionParsingTests(unittest.TestCase):
     def test_parses_json_line(self):

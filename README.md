@@ -48,18 +48,16 @@ At 2am, a pump's vibration climbs from a normal baseline of `0.2` to `2.8`—a 1
 - This system flags the anomaly, looks up similar incidents, and can produce an evidence-based alert such as: _"Sensor-4 matches the early bearing-wear signature from incident #0092. Recommend inspection within 48 hours."_
 - If the pattern is novel or the retrieval result is weak, it responds: _"No matching precedent; confidence is below threshold. Escalating for human review."_
 
-## Simulated fault scenarios
+## Simulated plant modes
 
-The included simulator models four realistic vibration-data failure modes rather than generic random noise:
+The simulator represents six named assets in a water-treatment plant. Operators choose only the plant mode; in faulty mode, a seeded scheduler chooses the affected asset, compatible fault, severity, and duration automatically.
 
-| Fault mode | What it simulates |
+| Mode | Behaviour |
 | --- | --- |
-| `anomaly` | Sudden positive vibration spikes |
-| `drift` | Gradual value drift after a sustained period |
-| `MCAR` | Missing readings occurring at random |
-| `duplicate_data` | Duplicate sensor readings |
+| `normal` | All six assets continuously emit healthy noisy telemetry |
+| `faulty` | Random transient equipment or transport faults occur and recover automatically |
 
-Each reading includes a device ID, timestamp, temperature, humidity, vibration, fault metadata, and duplicate indicator.
+Faults include cavitation, bearing degradation, imbalance, overload, intermittent sensor operation, duplicate events, and sequence gaps. Each reading includes the stream device ID plus the real asset tag, equipment name, equipment type, and plant area.
 
 ## Quick start: run the live simulator
 
@@ -69,35 +67,33 @@ Start the producer in one terminal:
 
 ```bash
 cd iot-streaming-mock
-python main.py produce
+uv run main.py produce --mode normal --seed 42
 ```
 
 In a second terminal, connect a consumer:
 
 ```bash
 cd iot-streaming-mock
-python main.py consume
+uv run main.py consume
 ```
 
-The producer starts a TCP server on `0.0.0.0:9999` and emits readings from four simulated devices approximately every 0.5 seconds. To receive JSON Lines suitable for a downstream stream processor, use:
+The producer starts a TCP server on `0.0.0.0:9999` and emits readings from six water-treatment assets approximately every 0.5 seconds. To receive JSON Lines suitable for a downstream stream processor, use:
 
 ```bash
-python main.py consume --json
+uv run main.py consume --json
 ```
 
 You can also run the simulator's end-to-end check:
 
 ```bash
 cd iot-streaming-mock
-python main.py e2e
+uv run main.py e2e
 ```
 
-For a repeatable demo, choose a named scenario and seed:
+For a repeatable run with automatically scheduled transient faults:
 
 ```bash
-./.venv/bin/python main.py produce --scenario known_fault --seed 42 --interval 0.1
-./.venv/bin/python main.py produce --scenario novel_fault --seed 42 --interval 0.1
-./.venv/bin/python main.py produce --scenario data_quality --seed 42 --interval 0.1
+uv run main.py produce --mode faulty --seed 42 --interval 0.1
 ```
 
 ## Example reading
@@ -107,14 +103,17 @@ For a repeatable demo, choose a named scenario and seed:
   "event_id": "sensor-1-evt-000123",
   "sequence_number": 123,
   "device_id": "sensor-1",
+  "asset_id": "P-101",
+  "equipment_name": "Raw Water Intake Pump",
   "equipment_type": "centrifugal_pump",
+  "area": "Intake Station",
   "sensor_type": "vibration",
   "unit": "mm/s",
   "timestamp": 1730000000.123,
   "temperature": 22.41,
   "humidity": 51.82,
   "vibration": 0.24,
-  "fault_type": "anomaly",
+  "fault_type": null,
   "fault_active": false,
   "duplicate": false
 }
@@ -139,7 +138,7 @@ For a repeatable demo, choose a named scenario and seed:
 
 | Component | Status |
 | --- | --- |
-| IoT simulator with four fault modes | Complete |
+| Six-asset water-treatment simulator with normal/faulty modes | Complete |
 | TCP broadcast and live consumer | Complete |
 | Validated ingestion and stream processor | Complete |
 | Deterministic anomaly and transport-quality detection | Complete |
@@ -178,7 +177,7 @@ Start the three runtime processes in separate terminals.
 ```bash
 # Terminal 1 — TCP sensor producer
 cd iot-streaming-mock
-./.venv/bin/python main.py produce --scenario random --seed 42 --interval 0.1
+uv run main.py produce --mode faulty --seed 42 --interval 0.1
 ```
 
 ```bash

@@ -1,23 +1,24 @@
 # IoT Streaming Mock
 
 A dependency-free TCP simulator for temperature, humidity, and vibration
-telemetry. It emits newline-delimited JSON from multiple devices.
+telemetry from six named water-treatment assets. It emits newline-delimited
+JSON over one broadcast TCP stream.
 
 ```bash
-./.venv/bin/python main.py produce
-./.venv/bin/python main.py consume --json
+uv run main.py produce --mode normal --seed 42
+uv run main.py consume --json
 ```
 
-Repeatable demo scenarios accept a seed:
+Faulty mode schedules compatible faults on random assets, then recovers them
+automatically. A seed makes the complete run repeatable:
 
 ```bash
-./.venv/bin/python main.py produce --scenario known_fault --seed 42 --interval 0.1
-./.venv/bin/python main.py produce --scenario novel_fault --seed 42 --interval 0.1
-./.venv/bin/python main.py produce --scenario data_quality --seed 42 --interval 0.1
+uv run main.py produce --mode faulty --seed 42 --interval 0.1
 ```
 
-Calling `.venv/bin/python` directly avoids conflicts when pyenv cannot see
-the Python interpreter installed and managed by uv.
+Use `uv run` instead of activating the project virtual environment. It resolves
+the Python version declared by the repository even when pyenv does not have
+that version installed globally.
 
-The default `random` scenario retains the original rotating spike, drift,
-missing-data, and duplicate-data fault modes.
+The default `normal` mode never injects faults. In `faulty` mode, all unaffected
+assets keep reporting healthy readings while the selected asset is faulty.

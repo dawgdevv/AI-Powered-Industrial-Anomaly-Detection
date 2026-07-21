@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from iot_stream.api.models import PolicyConfig
-from iot_stream.api.runtime import StreamRuntime
+from iot_stream.api.runtime import CONFIGURED_FLEET_SIZE, StreamRuntime
 from iot_stream.incidents.models import IncidentCategory, IncidentState
 
 
@@ -62,6 +62,7 @@ def create_app(
             "last_reading_at": store.last_reading_at,
             "uptime_seconds": round(time.time() - store.started_at, 3),
             "sensor_count": len(store.sensors),
+            "configured_fleet_size": CONFIGURED_FLEET_SIZE,
             "incident_count": len(store.incidents),
         }
 

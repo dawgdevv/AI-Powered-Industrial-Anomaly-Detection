@@ -16,12 +16,7 @@ from iot_stream.pipeline.detectors import DeviceDetectorSet
 from iot_stream.schemas import AnomalyEvent, SensorReading
 
 
-EQUIPMENT_LABELS = {
-    "centrifugal_pump": ("Pump P-04", "Line 2 · Cooling"),
-    "industrial_mixer": ("Mixer M-12", "Line 2 · Blending"),
-    "ventilation_fan": ("Fan F-07", "Line 1 · Ventilation"),
-    "belt_conveyor": ("Conveyor C-03", "Line 1 · Packing"),
-}
+CONFIGURED_FLEET_SIZE = 6
 
 
 class RuntimeStore:
@@ -118,17 +113,15 @@ class RuntimeStore:
         return "normal"
 
     async def record_reading(self, reading: SensorReading) -> None:
-        equipment, area = EQUIPMENT_LABELS.get(
-            reading.equipment_type,
-            (reading.equipment_type.replace("_", " ").title(), "Unassigned area"),
-        )
         self.sensors[reading.device_id] = {
             "event_id": reading.event_id,
             "sequence_number": reading.sequence_number,
             "device_id": reading.device_id,
+            "asset_id": reading.asset_id or reading.device_id,
             "equipment_type": reading.equipment_type,
-            "equipment": equipment,
-            "area": area,
+            "equipment_name": reading.equipment_name
+            or reading.equipment_type.replace("_", " ").title(),
+            "area": reading.area or "Unassigned area",
             "sensor_type": reading.sensor_type,
             "unit": reading.unit,
             "timestamp": reading.timestamp,

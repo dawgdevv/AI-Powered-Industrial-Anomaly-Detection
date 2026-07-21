@@ -1,10 +1,11 @@
 import asyncio
 import json
 
-from simulator.producer import BroadcastServer, Sensor, sensor_loop, FAULT_ROTATION
-from simulator.types import SensorReading
+from simulator.producer import BroadcastServer, FLEET, PlantSimulator, plant_loop
+from simulator.types import SensorReading, SimulatorConfig
 
 TEST_DURATION = 25
+TEST_INTERVAL = 0.02
 HOST = "127.0.0.1"
 PORT = 9999
 
@@ -21,14 +22,21 @@ async def consumer(received: list, host: str = HOST, port: int = PORT):
 
 async def main(duration: int = TEST_DURATION, host: str = HOST, port: int = PORT):
     server = BroadcastServer()
-    sensors = [
-        Sensor(f"sensor-{i+1}", fault_type=FAULT_ROTATION[i % len(FAULT_ROTATION)])
-        for i in range(4)
-    ]
+    simulator = PlantSimulator(
+        SimulatorConfig(
+            host=host,
+            port=port,
+            num_devices=len(FLEET),
+            emit_interval=TEST_INTERVAL,
+            seed=42,
+            mode="faulty",
+        ),
+        timestamp_origin=1_700_000_000.0,
+    )
 
     tcp_server = await asyncio.start_server(server.handle_client, host, port)
     actual_port = tcp_server.sockets[0].getsockname()[1]
-    sensor_tasks = [asyncio.create_task(sensor_loop(s, server)) for s in sensors]
+    producer_task = asyncio.create_task(plant_loop(simulator, server, TEST_INTERVAL))
 
     received: list = []
     await asyncio.sleep(0.2)
@@ -38,8 +46,7 @@ async def main(duration: int = TEST_DURATION, host: str = HOST, port: int = PORT
     await asyncio.sleep(duration)
 
     consumer_task.cancel()
-    for t in sensor_tasks:
-        t.cancel()
+    producer_task.cancel()
     tcp_server.close()
     await tcp_server.wait_closed()
 
@@ -54,8 +61,8 @@ async def main(duration: int = TEST_DURATION, host: str = HOST, port: int = PORT
     print(f"Fault-active readings: {faults_active}")
     print(f"Null (MCAR dropout) readings: {nulls}")
     print(f"Duplicate readings: {duplicates}")
-    for d, ft in zip(devices, FAULT_ROTATION):
-        print(f"  {d}: assigned fault mode = {ft}")
+    for asset in FLEET:
+        print(f"  {asset.device_id}: {asset.asset_id} · {asset.equipment_name}")
     print("PASS: producer and consumer talked over a real TCP socket." if received else "FAIL: no data received.")
 
 

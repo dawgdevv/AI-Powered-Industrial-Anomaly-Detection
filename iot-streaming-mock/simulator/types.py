@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass
 from typing import Optional
 
 
@@ -7,7 +7,10 @@ class SensorReading:
     event_id: str
     sequence_number: int
     device_id: str
+    asset_id: str
+    equipment_name: str
     equipment_type: str
+    area: str
     sensor_type: str
     unit: str
     timestamp: float
@@ -30,7 +33,7 @@ class SensorReading:
 class SimulatorConfig:
     host: str = "0.0.0.0"
     port: int = 9999
-    num_devices: int = 4
+    num_devices: int = 6
     emit_interval: float = 0.5
     seed: Optional[int] = None
-    scenario: str = "random"
+    mode: str = "normal"
