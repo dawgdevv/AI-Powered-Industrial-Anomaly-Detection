@@ -17,9 +17,8 @@ implementation detail:
     rolling mean over a long window reveals it. This is the fault mode
     that would be invisible to a naive threshold alarm.
 
-  - DUPLICATE: not a physical fault, but a data-quality issue (flaky
-    publisher). Flagged directly from the transport-level flag rather
-    than inferred statistically.
+  - TRANSPORT QUALITY: duplicate event IDs, sequence gaps, timestamp
+    regressions, and stale readings are inferred from observable metadata.
 
 Every detector is pure and stateful only for a single device — no
 knowledge of TCP, agents, or vector stores. That's what keeps this layer
@@ -30,6 +29,7 @@ from collections import deque
 from typing import Optional
 
 from iot_stream.schemas import SensorReading, AnomalyEvent
+from iot_stream.pipeline.quality import TransportQualityDetector
 
 # ----------------------------- CONFIG -----------------------------
 SPIKE_WINDOW = 30
@@ -177,34 +177,21 @@ class DriftDetector:
         return event
 
 
-class DuplicateDetector:
-    """Flags transport-level duplicates directly — a data-quality issue,
-    not a physical fault, so it's kept structurally separate."""
-
-    def check(self, reading: SensorReading) -> Optional[AnomalyEvent]:
-        if reading.duplicate:
-            return AnomalyEvent(
-                device_id=reading.device_id,
-                timestamp=reading.timestamp,
-                detector="duplicate",
-                description="Duplicate reading received — possible flaky publisher retry",
-                severity="low",
-                reading=reading,
-            )
-        return None
-
-
 class DeviceDetectorSet:
-    """Bundles all four detectors for one device."""
+    """Bundles signal and transport-quality detectors for one device."""
 
-    def __init__(self):
+    def __init__(self, *, max_staleness_seconds: float | None = None):
         self.spike = SpikeDetector()
         self.dropout = DropoutDetector()
         self.drift = DriftDetector()
-        self.duplicate = DuplicateDetector()
+        self.quality = TransportQualityDetector(
+            max_staleness_seconds=max_staleness_seconds
+        )
 
-    def check(self, reading: SensorReading) -> list[AnomalyEvent]:
-        events = []
+    def check(
+        self, reading: SensorReading, *, received_at: float | None = None
+    ) -> list[AnomalyEvent]:
+        events = self.quality.check(reading, received_at=received_at)
 
         spike_event = self.spike.check(reading)
         if spike_event is not None:
@@ -216,9 +203,8 @@ class DeviceDetectorSet:
         if drift_event is not None:
             events.append(drift_event)
 
-        for detector in (self.dropout, self.duplicate):
-            result = detector.check(reading)
-            if result is not None:
-                events.append(result)
+        dropout_event = self.dropout.check(reading)
+        if dropout_event is not None:
+            events.append(dropout_event)
 
         return events

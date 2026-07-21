@@ -92,11 +92,24 @@ cd iot-streaming-mock
 python main.py e2e
 ```
 
+For a repeatable demo, choose a named scenario and seed:
+
+```bash
+./.venv/bin/python main.py produce --scenario known_fault --seed 42 --interval 0.1
+./.venv/bin/python main.py produce --scenario novel_fault --seed 42 --interval 0.1
+./.venv/bin/python main.py produce --scenario data_quality --seed 42 --interval 0.1
+```
+
 ## Example reading
 
 ```json
 {
+  "event_id": "sensor-1-evt-000123",
+  "sequence_number": 123,
   "device_id": "sensor-1",
+  "equipment_type": "centrifugal_pump",
+  "sensor_type": "vibration",
+  "unit": "mm/s",
   "timestamp": 1730000000.123,
   "temperature": 22.41,
   "humidity": 51.82,
@@ -116,7 +129,9 @@ python main.py e2e
 ├── src/iot_stream/
 │   ├── ingestion/            # TCP stream ingestion
 │   ├── pipeline/             # Stream processing and anomaly detectors
+│   ├── incidents/            # Aggregation, confidence, and decisions
 │   └── api/                  # Future FastAPI service
+├── test/                     # Unit and milestone integration tests
 └── PROBLEM.md                # Problem statement and product context
 ```
 
@@ -126,12 +141,14 @@ python main.py e2e
 | --- | --- |
 | IoT simulator with four fault modes | Complete |
 | TCP broadcast and live consumer | Complete |
-| Stream processor | In progress |
-| Statistical anomaly detection | In progress |
+| Validated ingestion and stream processor | Complete |
+| Deterministic anomaly and transport-quality detection | Complete |
+| Incident aggregation and detector-agreement policy | Complete |
 | Incident knowledge base and RAG retrieval | Planned |
 | Confidence-aware AI diagnosis and escalation | Planned |
 | OpenTelemetry/Signoz observability | Planned |
-| FastAPI service and dashboard | Planned |
+| FastAPI service with REST and SSE | Complete |
+| Live operator dashboard | Complete |
 
 ## Technology direction
 
@@ -145,3 +162,40 @@ python main.py e2e
 ## Guiding principle
 
 **A system that knows when it does not know is safer than one that always sounds certain.**
+
+## Run tests
+
+The Python suite uses only the standard library:
+
+```bash
+python -m unittest discover -v
+```
+
+## Run the live API and dashboard
+
+Start the three runtime processes in separate terminals.
+
+```bash
+# Terminal 1 — TCP sensor producer
+cd iot-streaming-mock
+./.venv/bin/python main.py produce --scenario random --seed 42 --interval 0.1
+```
+
+```bash
+# Terminal 2 — FastAPI processing service
+./.venv/bin/uvicorn --app-dir src iot_stream.api.main:app --reload
+```
+
+```bash
+# Terminal 3 — React operator dashboard
+cd dashboard
+bun run dev
+```
+
+Open `http://localhost:5173`. The API is available at
+`http://127.0.0.1:8000`, with interactive route documentation at
+`http://127.0.0.1:8000/docs`.
+
+The API keeps current sensor trends, incidents, activity, and policy settings
+in memory only. Runtime policy changes and operator actions reset when the API
+restarts.

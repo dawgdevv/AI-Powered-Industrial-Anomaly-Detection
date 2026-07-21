@@ -18,6 +18,7 @@ import logging
 from typing import AsyncIterator
 
 from iot_stream.ingestion.tcp_client import stream_readings
+from iot_stream.incidents import DecisionPolicy, Incident, IncidentAggregator
 from iot_stream.pipeline.detectors import DeviceDetectorSet
 from iot_stream.schemas import AnomalyEvent
 
@@ -38,7 +39,9 @@ async def process_stream(host: str, port: int) -> AsyncIterator[AnomalyEvent]:
         reading_count += 1
 
         if reading.device_id not in detector_sets:
-            detector_sets[reading.device_id] = DeviceDetectorSet()
+            detector_sets[reading.device_id] = DeviceDetectorSet(
+                max_staleness_seconds=30.0
+            )
 
         events = detector_sets[reading.device_id].check(reading)
         for event in events:
@@ -47,6 +50,26 @@ async def process_stream(host: str, port: int) -> AsyncIterator[AnomalyEvent]:
 
         if reading_count % 50 == 0:
             logger.info(f"Processed {reading_count} readings, {event_count} events so far")
+
+
+async def process_incidents(host: str, port: int) -> AsyncIterator[Incident]:
+    """Run the deterministic path from readings through policy decisions."""
+    detector_sets: dict[str, DeviceDetectorSet] = {}
+    aggregator = IncidentAggregator()
+    policy = DecisionPolicy()
+
+    async for reading in stream_readings(host, port):
+        if reading.device_id not in detector_sets:
+            detector_sets[reading.device_id] = DeviceDetectorSet(
+                max_staleness_seconds=30.0
+            )
+        detectors = detector_sets[reading.device_id]
+        events = detectors.check(reading)
+        aggregator.resolve_quiet(reading.device_id, reading.timestamp)
+        for event in events:
+            incident = aggregator.aggregate(event)
+            result = policy.evaluate(incident)
+            yield aggregator.apply_decision(incident, result)
 
 
 # ----------------------------- Manual test -----------------------------

@@ -1,7 +1,13 @@
 [project]
 name = "iot-streaming-agentic-rag"
 version = "0.1.0"
-description = "Add your description here"
+description = "Confidence-aware anomaly detection for live industrial IoT streams"
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+]
+
+[dependency-groups]
+dev = ["httpx"]

@@ -9,7 +9,7 @@ This checklist turns the project goals in [context.md](context.md), [PROBLEM.md]
 - [x] Document the two core demo outcomes: known precedent and human escalation.
 - [x] Write a project README with architecture, fault scenarios, quick start, and roadmap.
 - [x] Create structured project context, decision policy, observability plan, and delivery priorities.
-- [ ] Update the README status table to reflect the implemented stream processor and dashboard mockup.
+- [x] Update the README status table to reflect the implemented stream processor and dashboard mockup.
 - [ ] Add screenshots or a short GIF of the dashboard and SigNoz views.
 - [ ] Add an AI-assistance disclosure and final hackathon submission details.
 
@@ -20,10 +20,10 @@ This checklist turns the project goals in [context.md](context.md), [PROBLEM.md]
 - [x] Simulate vibration spike, gradual drift, random missing data, and duplicate data modes.
 - [x] Provide a runnable producer and a live consumer.
 - [x] Provide a simulator end-to-end TCP check.
-- [ ] Add `event_id` and `sequence_number` to every reading.
-- [ ] Add `equipment_type`, `sensor_type`, and `unit` to every reading.
-- [ ] Add deterministic random-seed support.
-- [ ] Add CLI scenario controls for known fault, novel fault, and data-dropout demos.
+- [x] Add `event_id` and `sequence_number` to every reading.
+- [x] Add `equipment_type`, `sensor_type`, and `unit` to every reading.
+- [x] Add deterministic random-seed support.
+- [x] Add CLI scenario controls for known fault, novel fault, and data-dropout demos.
 - [ ] Add a fast, judge-friendly demo mode.
 
 ## Ingestion and Stream Processing
@@ -37,22 +37,22 @@ This checklist turns the project goals in [context.md](context.md), [PROBLEM.md]
 - [x] Implement gradual-drift detection.
 - [x] Detect sustained missing vibration readings.
 - [x] Detect duplicate readings from the stream flag.
-- [ ] Validate event IDs, sequence gaps, and stale timestamps.
+- [x] Validate event IDs, sequence gaps, and stale timestamps.
 - [ ] Add rate-of-change detection.
 - [ ] Add Isolation Forest after deterministic detectors have tests.
-- [ ] Ensure detector inputs never use simulator ground-truth fields (`fault_type`, `fault_active`, `duplicate`).
+- [x] Ensure detector inputs never use simulator ground-truth fields (`fault_type`, `fault_active`, `duplicate`).
 
 ## Incidents and Decision Policy
 
-- [ ] Aggregate repeated anomaly events into one incident.
-- [ ] Store incident first/last seen time, peak value, score, detector agreement, and affected-reading count.
-- [ ] Implement incident states: `OPEN`, `INVESTIGATING`, `RECOMMENDED`, `ESCALATED`, and `RESOLVED`.
-- [ ] Add cooldown and resolution rules to prevent alert floods.
-- [ ] Split `EQUIPMENT_CONDITION` and `DATA_QUALITY` incidents.
-- [ ] Add an application-level confidence score.
-- [ ] Implement `RECOMMEND`, `ESCALATE`, `MONITOR`, and `DATA_QUALITY_ALERT` decisions.
-- [ ] Enforce the invariant that a recommendation cannot be issued below the configured threshold.
-- [ ] Record abstention reason codes.
+- [x] Aggregate repeated anomaly events into one incident.
+- [x] Store incident first/last seen time, peak value, score, detector agreement, and affected-reading count.
+- [x] Implement incident states: `OPEN`, `INVESTIGATING`, `RECOMMENDED`, `ESCALATED`, and `RESOLVED`.
+- [x] Add cooldown and resolution rules to prevent alert floods.
+- [x] Split `EQUIPMENT_CONDITION` and `DATA_QUALITY` incidents.
+- [x] Add an application-level confidence score.
+- [x] Implement `RECOMMEND`, `ESCALATE`, `MONITOR`, and `DATA_QUALITY_ALERT` decisions.
+- [x] Enforce the invariant that a recommendation cannot be issued below the configured threshold.
+- [x] Record abstention reason codes.
 
 ## Knowledge Base, Retrieval, and AI Explanation
 
@@ -85,8 +85,8 @@ This checklist turns the project goals in [context.md](context.md), [PROBLEM.md]
 - [x] Align dashboard mock sensor fields with the simulator schema.
 - [x] Support sensor selection, severity filtering, and a mock maintenance-review action.
 - [x] Build the dashboard successfully with Vite.
-- [ ] Create FastAPI endpoints for fleet status, sensor detail, incident history, and review actions.
-- [ ] Replace dashboard mock arrays with API/live-stream data.
+- [x] Create FastAPI endpoints for fleet status, sensor detail, incident history, policy configuration, and review actions.
+- [x] Replace dashboard mock arrays with API snapshots and live SSE data.
 - [ ] Show detector outputs, retrieval evidence, confidence breakdown, and abstention reason.
 - [ ] Link each incident to its SigNoz trace.
 - [ ] Add a human-review queue and resolution workflow.
@@ -95,11 +95,11 @@ This checklist turns the project goals in [context.md](context.md), [PROBLEM.md]
 
 - [x] Include simulator consumer and end-to-end test scripts.
 - [x] Verify the dashboard production build.
-- [ ] Add unit tests for spike, drift, missing-data, and duplicate detectors.
-- [ ] Add ingestion validation and reconnect tests.
+- [x] Add unit tests for spike, drift, missing-data, and duplicate detectors.
+- [x] Add ingestion validation and reconnect tests.
 - [ ] Add retrieval tests for known and novel incidents.
-- [ ] Add confidence-threshold and safety-policy tests.
-- [ ] Add end-to-end tests for known fault, novel fault, and data-quality scenarios.
+- [x] Add confidence-threshold and safety-policy tests.
+- [x] Add end-to-end tests for known fault, novel fault, and data-quality scenarios.
 - [ ] Add trace-creation verification.
 - [ ] Add Docker Compose, `.env.example`, Foundry configuration, and pinned dependencies.
 - [ ] Verify a clean-clone, one-command demo.

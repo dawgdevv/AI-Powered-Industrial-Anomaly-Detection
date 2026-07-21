@@ -9,8 +9,8 @@ HOST = "127.0.0.1"
 PORT = 9999
 
 
-async def consumer(received: list):
-    reader, _writer = await asyncio.open_connection(HOST, PORT)
+async def consumer(received: list, host: str = HOST, port: int = PORT):
+    reader, _writer = await asyncio.open_connection(host, port)
     try:
         async for line in reader:
             reading = SensorReading.from_dict(json.loads(line.decode()))
@@ -19,19 +19,20 @@ async def consumer(received: list):
         pass
 
 
-async def main(duration: int = TEST_DURATION):
+async def main(duration: int = TEST_DURATION, host: str = HOST, port: int = PORT):
     server = BroadcastServer()
     sensors = [
         Sensor(f"sensor-{i+1}", fault_type=FAULT_ROTATION[i % len(FAULT_ROTATION)])
         for i in range(4)
     ]
 
-    tcp_server = await asyncio.start_server(server.handle_client, HOST, PORT)
+    tcp_server = await asyncio.start_server(server.handle_client, host, port)
+    actual_port = tcp_server.sockets[0].getsockname()[1]
     sensor_tasks = [asyncio.create_task(sensor_loop(s, server)) for s in sensors]
 
     received: list = []
     await asyncio.sleep(0.2)
-    consumer_task = asyncio.create_task(consumer(received))
+    consumer_task = asyncio.create_task(consumer(received, host, actual_port))
 
     print(f"Running end-to-end test for {duration}s...\n")
     await asyncio.sleep(duration)

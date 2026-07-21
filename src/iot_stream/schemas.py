@@ -1,48 +1,122 @@
-"""
-Shared schemas for the IoT stream application.
+"""Shared, validated data contracts for the streaming application."""
 
-Every layer (ingestion,pipeline,agent) import this instead of redefining the shape of a sensor reading.
+from __future__ import annotations
 
-
-"""
-
-from dataclasses import dataclass,field
-from typing import Optional
+from dataclasses import asdict, dataclass, field
+from math import isfinite
+from typing import Any, Mapping
 
 
-@dataclass
+REQUIRED_READING_FIELDS = (
+    "event_id",
+    "sequence_number",
+    "device_id",
+    "equipment_type",
+    "sensor_type",
+    "unit",
+    "timestamp",
+    "temperature",
+    "humidity",
+    "vibration",
+)
+
+
+class SensorValidationError(ValueError):
+    """Raised when an input payload cannot become a valid sensor reading."""
+
+    def __init__(self, reason_codes: list[str]):
+        self.reason_codes = tuple(dict.fromkeys(reason_codes))
+        super().__init__(", ".join(self.reason_codes))
+
+
+def _is_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+@dataclass(frozen=True)
 class SensorReading:
-    device_id:str
-    timestamp:float
-    temperature:float
-    humidity:Optional[float]
-    vibration:Optional[float]
-    fault_type:str
-    fault_active:bool
-    duplicate:bool
+    event_id: str
+    sequence_number: int
+    device_id: str
+    equipment_type: str
+    sensor_type: str
+    unit: str
+    timestamp: float
+    temperature: float
+    humidity: float | None
+    vibration: float | None
+    fault_type: str | None = None
+    fault_active: bool = False
+    duplicate: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
 
     @classmethod
-    def from_dict(cls,data:dict) -> "SensorReading":
+    def from_dict(cls, data: Mapping[str, Any]) -> "SensorReading":
+        if not isinstance(data, Mapping):
+            raise SensorValidationError(["payload_not_object"])
+
+        reasons = [
+            f"missing_{name}" for name in REQUIRED_READING_FIELDS if name not in data
+        ]
+
+        for name in ("event_id", "device_id", "equipment_type", "sensor_type", "unit"):
+            value = data.get(name)
+            if name in data and (not isinstance(value, str) or not value.strip()):
+                reasons.append(f"invalid_{name}")
+
+        sequence = data.get("sequence_number")
+        if "sequence_number" in data and (
+            not isinstance(sequence, int) or isinstance(sequence, bool) or sequence < 0
+        ):
+            reasons.append("invalid_sequence_number")
+
+        for name in ("timestamp", "temperature"):
+            value = data.get(name)
+            if name in data and (not _is_number(value) or not isfinite(float(value))):
+                reasons.append(f"invalid_{name}")
+
+        for name in ("humidity", "vibration"):
+            value = data.get(name)
+            if name in data and value is not None and (
+                not _is_number(value) or not isfinite(float(value))
+            ):
+                reasons.append(f"invalid_{name}")
+
+        fault_type = data.get("fault_type")
+        if fault_type is not None and not isinstance(fault_type, str):
+            reasons.append("invalid_fault_type")
+        for name in ("fault_active", "duplicate"):
+            if name in data and not isinstance(data[name], bool):
+                reasons.append(f"invalid_{name}")
+
+        if reasons:
+            raise SensorValidationError(reasons)
+
         return cls(
-            device_id=data.get("device_id"),
-            timestamp=data.get("timestamp"),
-            temperature=data.get("temperature"),
-            humidity=data.get("humidity"),
-            vibration=data.get("vibration"),
-            fault_type=data.get("fault_type"),
-            fault_active=data.get("fault_active"),
-            duplicate=data.get("duplicate",False)
+            event_id=data["event_id"].strip(),
+            sequence_number=data["sequence_number"],
+            device_id=data["device_id"].strip(),
+            equipment_type=data["equipment_type"].strip(),
+            sensor_type=data["sensor_type"].strip(),
+            unit=data["unit"].strip(),
+            timestamp=float(data["timestamp"]),
+            temperature=float(data["temperature"]),
+            humidity=None if data["humidity"] is None else float(data["humidity"]),
+            vibration=None if data["vibration"] is None else float(data["vibration"]),
+            fault_type=fault_type,
+            fault_active=data.get("fault_active", False),
+            duplicate=data.get("duplicate", False),
         )
 
-@dataclass
+
+@dataclass(frozen=True)
 class AnomalyEvent:
-    """
-    Represents an anomaly event detected in the sensor data.    
-    """
-    device_id:str
-    timestamp:float
-    detector:str
-    description:str
-    severity:str
-    reading:SensorReading
-    context: dict = field(default_factory=dict)
+    device_id: str
+    timestamp: float
+    detector: str
+    description: str
+    severity: str
+    reading: SensorReading
+    context: dict[str, Any] = field(default_factory=dict)

@@ -62,6 +62,7 @@ class RandomWalkChannel:
     variation_range: float
     change_rate: float
     error: ErrorDefinition = field(default_factory=ErrorDefinition)
+    rng: random.Random = field(default_factory=random.Random, repr=False)
 
     def __post_init__(self):
         self.previous_value = self.base_value
@@ -72,7 +73,7 @@ class RandomWalkChannel:
 
     def generate(self) -> dict:
         """Returns {"value": float|None, "duplicate": bool, "fault_active": bool}"""
-        step = random.uniform(-self.change_rate, self.change_rate)
+        step = self.rng.uniform(-self.change_rate, self.change_rate)
         value = self.previous_value + step
         value = max(self.base_value - self.variation_range,
                     min(self.base_value + self.variation_range, value))
@@ -101,22 +102,22 @@ class RandomWalkChannel:
 
     def _apply_anomaly(self, value):
         active = False
-        if random.random() < self.error.probability_pos_anomaly:
-            value += random.uniform(*self.error.pos_anomaly_range)
+        if self.rng.random() < self.error.probability_pos_anomaly:
+            value += self.rng.uniform(*self.error.pos_anomaly_range)
             active = True
-        if random.random() < self.error.probability_neg_anomaly:
-            value -= random.uniform(*self.error.neg_anomaly_range)
+        if self.rng.random() < self.error.probability_neg_anomaly:
+            value -= self.rng.uniform(*self.error.neg_anomaly_range)
             active = True
         return value, active
 
     def _apply_mcar(self, value):
-        if random.random() < self.error.mcar_probability:
+        if self.rng.random() < self.error.mcar_probability:
             return None, True
         return value, False
 
     def _apply_duplicate(self):
         if (self.iteration - self._last_duplicate_iteration > 2
-                and random.random() < self.error.duplicate_probability):
+                and self.rng.random() < self.error.duplicate_probability):
             self._last_duplicate_iteration = self.iteration
             return True, True
         return False, False
@@ -126,8 +127,8 @@ class RandomWalkChannel:
             self._drifting = True
             if self.iteration % DRIFT_APPLY_EVERY_N_ITERATIONS != 0:
                 return True
-            deviation = random.uniform(-self.error.drift_variation_range,
-                                        self.error.drift_variation_range)
+            deviation = self.rng.uniform(-self.error.drift_variation_range,
+                                         self.error.drift_variation_range)
             self.base_value += self.error.average_drift_rate + deviation
             return True
         return False
