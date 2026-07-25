@@ -79,7 +79,7 @@ Operators manage two plant modes rather than hand-authoring individual fault sce
 | Mode | Behavior |
 | --- | --- |
 | `normal` | All six assets continuously emit healthy telemetry with natural measurement noise |
-| `faulty` | Continuous operational workload: a shuffled knowledge-backed equipment incident begins every 60 seconds (40-second duration), while a short data-quality anomaly begins every 30 seconds |
+| `faulty` | Demo-ready workload: 60 seconds of clean baseline, then a shuffled knowledge-backed equipment incident every 60 seconds (40-second duration); short data-quality anomalies begin at 180 seconds and then recur every 30 seconds |
 
 Faulty mode cycles through all six water-treatment knowledge scenarios before repeating. It also injects duplicate events, sequence gaps, and intermittent readings independently, so traces show detector, retrieval, agent, and recovery behaviour under sustained load. Unaffected assets continue operating normally.
 

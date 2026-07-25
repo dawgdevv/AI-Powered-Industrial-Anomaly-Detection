@@ -20,11 +20,12 @@ MODES = ("normal", "faulty")
 # Continuous operational-demo workload: each equipment scenario is taken from
 # the same catalog Chroma indexes; data-quality conditions exercise the rest of
 # the pipeline without giving the agent a mock fault label.
-WARMUP_SECONDS = 10.0
+WARMUP_SECONDS = 60.0
 EQUIPMENT_FAULT_DURATION_SECONDS = 40.0
 EQUIPMENT_FAULT_INTERVAL_SECONDS = 60.0
 DATA_QUALITY_FAULT_DURATION_SECONDS = 8.0
 DATA_QUALITY_FAULT_INTERVAL_SECONDS = 30.0
+DATA_QUALITY_FIRST_FAULT_SECONDS = 180.0
 DATA_QUALITY_FAULT_TYPES = ("duplicate_event", "sequence_gap", "intermittent_operation")
 
 
@@ -128,7 +129,7 @@ class FaultScheduler:
         self.quality_duration_ticks = max(2, math.ceil(DATA_QUALITY_FAULT_DURATION_SECONDS / max(emit_interval, 0.001)))
         self.quality_interval_ticks = max(2, math.ceil(DATA_QUALITY_FAULT_INTERVAL_SECONDS / max(emit_interval, 0.001)))
         self.next_equipment_tick = self.warmup_ticks if mode == "faulty" else None
-        self.next_quality_tick = self.warmup_ticks + self.quality_interval_ticks if mode == "faulty" else None
+        self.next_quality_tick = max(1, math.ceil(DATA_QUALITY_FIRST_FAULT_SECONDS / max(emit_interval, 0.001))) if mode == "faulty" else None
         self._equipment_deck: list[Asset] = []
         self._quality_type_deck: list[str] = []
 
@@ -423,7 +424,7 @@ async def run_producer(config: SimulatorConfig):
     print(f"Water treatment fleet: {config.num_devices}/{len(FLEET)} assets")
     print(f"Mode: {config.mode}; interval: {config.emit_interval}s; seed: {simulator.seed}")
     if config.mode == "faulty":
-        print(f"Faulty workload: after {WARMUP_SECONDS:.0f}s baseline, one knowledge-backed equipment scenario runs every {EQUIPMENT_FAULT_INTERVAL_SECONDS:.0f}s for {EQUIPMENT_FAULT_DURATION_SECONDS:.0f}s; a random data-quality anomaly runs every {DATA_QUALITY_FAULT_INTERVAL_SECONDS:.0f}s for {DATA_QUALITY_FAULT_DURATION_SECONDS:.0f}s.")
+        print(f"Faulty workload: {WARMUP_SECONDS:.0f}s clean baseline; one knowledge-backed equipment scenario runs every {EQUIPMENT_FAULT_INTERVAL_SECONDS:.0f}s for {EQUIPMENT_FAULT_DURATION_SECONDS:.0f}s; data-quality anomalies begin at {DATA_QUALITY_FIRST_FAULT_SECONDS:.0f}s and then run every {DATA_QUALITY_FAULT_INTERVAL_SECONDS:.0f}s for {DATA_QUALITY_FAULT_DURATION_SECONDS:.0f}s.")
     for asset in simulator.assets:
         print(f"  {asset.device_id}: {asset.asset_id} · {asset.equipment_name} · {asset.area}")
     print("Waiting for consumers to connect (or run without one — data still flows)...\n")

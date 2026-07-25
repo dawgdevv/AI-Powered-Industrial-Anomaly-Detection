@@ -9,12 +9,13 @@ uv run main.py produce --mode normal --seed 42
 uv run main.py consume --json
 ```
 
-Faulty mode is a continuous realistic demo workload. After a 10-second healthy
-baseline, one knowledge-aligned water-treatment equipment incident starts every
-60 seconds and runs for 40 seconds. Equipment scenarios are shuffled without
-repeating until all six knowledge-base scenarios have run. Separately, a short
-data-quality condition (duplicate event, sequence gap, or intermittent reading)
-starts every 30 seconds and lasts 8 seconds. The agent receives only live
+Faulty mode is a continuous demo workload. It begins with a 60-second clean
+baseline, then one knowledge-aligned water-treatment equipment incident starts
+every 60 seconds and runs for 40 seconds. Equipment scenarios are shuffled
+without repeating until all six knowledge-base scenarios have run. To keep the
+first retrieval demonstration clear, short data-quality conditions (duplicate
+event, sequence gap, or intermittent reading) begin at 180 seconds; they then
+start every 30 seconds and last 8 seconds. The agent receives only live
 telemetry; `fault_type` is simulator-only ground truth and is not sent to the
 pipeline:
 
