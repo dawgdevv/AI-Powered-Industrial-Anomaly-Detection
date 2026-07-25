@@ -2,8 +2,10 @@ import argparse
 import asyncio
 import json
 import random
+import math
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
 
 from simulator.fault_models import RandomWalkChannel
@@ -15,9 +17,15 @@ NUM_DEVICES = 6
 EMIT_INTERVAL = 0.5
 MODES = ("normal", "faulty")
 
-WARMUP_RANGE = (60, 100)
-HEALTHY_GAP_RANGE = (40, 100)
-FAULT_DURATION_RANGE = (30, 90)
+# Continuous operational-demo workload: each equipment scenario is taken from
+# the same catalog Chroma indexes; data-quality conditions exercise the rest of
+# the pipeline without giving the agent a mock fault label.
+WARMUP_SECONDS = 10.0
+EQUIPMENT_FAULT_DURATION_SECONDS = 40.0
+EQUIPMENT_FAULT_INTERVAL_SECONDS = 60.0
+DATA_QUALITY_FAULT_DURATION_SECONDS = 8.0
+DATA_QUALITY_FAULT_INTERVAL_SECONDS = 30.0
+DATA_QUALITY_FAULT_TYPES = ("duplicate_event", "sequence_gap", "intermittent_operation")
 
 
 @dataclass(frozen=True)
@@ -31,46 +39,69 @@ class Asset:
     base_humidity: float
     base_vibration: float
     fault_types: tuple[str, ...]
+    knowledge_incident_id: str
 
 
 FLEET: tuple[Asset, ...] = (
     Asset(
         "sensor-1", "P-101", "Raw Water Intake Pump", "centrifugal_pump",
         "Intake Station", 24.0, 62.0, 0.30,
-        ("cavitation", "bearing_degradation", "duplicate_event"),
+        ("cavitation", "bearing_degradation", "bearing_misalignment", "duplicate_event"), "WT-INC-001",
     ),
     Asset(
         "sensor-2", "B-201", "Aeration Blower", "aeration_blower",
         "Biological Treatment", 31.0, 55.0, 0.42,
-        ("blower_overheating", "bearing_degradation", "sequence_gap"),
+        ("blower_overheating", "bearing_degradation", "compressor_bearing_damage", "sequence_gap"), "WT-INC-002",
     ),
     Asset(
         "sensor-3", "M-301", "Flash Mixer", "flash_mixer",
         "Coagulation Basin", 26.0, 68.0, 0.34,
-        ("shaft_imbalance", "intermittent_operation", "duplicate_event"),
+        ("shaft_imbalance", "bearing_local_defect", "intermittent_operation", "duplicate_event"), "WT-INC-003",
     ),
     Asset(
         "sensor-4", "C-401", "Sludge Dewatering Centrifuge", "decanter_centrifuge",
         "Solids Handling", 35.0, 72.0, 0.58,
-        ("rotor_imbalance", "bearing_degradation", "sequence_gap"),
+        ("rotor_imbalance", "bearing_degradation", "vibration_bearing_seal_failure", "sequence_gap"), "WT-INC-004",
     ),
     Asset(
         "sensor-5", "P-501", "Chemical Dosing Pump", "metering_pump",
         "Chemical Room", 23.0, 48.0, 0.20,
-        ("intermittent_operation", "cavitation", "duplicate_event"),
+        ("intermittent_operation", "cavitation", "coupling_failure", "duplicate_event"), "WT-INC-005",
     ),
     Asset(
         "sensor-6", "SC-601", "Sludge Screw Conveyor", "screw_conveyor",
         "Dewatering Area", 29.0, 66.0, 0.46,
-        ("mechanical_overload", "bearing_degradation", "sequence_gap"),
+        ("mechanical_overload", "bearing_degradation", "compressor_bearing_damage", "sequence_gap"), "WT-INC-006",
     ),
 )
+
+KNOWLEDGE_CORPUS_PATH = Path(__file__).resolve().parents[2] / "src/iot_stream/knowledge/incidents.json"
+
+
+def _load_demo_scenarios() -> dict[str, dict[str, object]]:
+    """The faulty-mode source of truth is the same catalog that Chroma indexes."""
+    records = json.loads(KNOWLEDGE_CORPUS_PATH.read_text(encoding="utf-8"))
+    return {str(record["incident_id"]): record for record in records}
+
+
+DEMO_SCENARIOS = _load_demo_scenarios()
+
+
+def fault_for_asset(asset: Asset) -> str:
+    """Resolve the live mock's waveform from its water-treatment scenario."""
+    scenario = DEMO_SCENARIOS.get(asset.knowledge_incident_id)
+    if scenario is None:
+        raise ValueError(f"Missing knowledge scenario {asset.knowledge_incident_id}")
+    if scenario.get("equipment_type") != asset.equipment_type:
+        raise ValueError(f"Scenario {asset.knowledge_incident_id} does not match {asset.device_id}")
+    return str(scenario["fault_family"])
 
 
 @dataclass(frozen=True)
 class ActiveFault:
     device_id: str
     fault_type: str
+    kind: str
     start_tick: int
     duration: int
     severity: float
@@ -80,41 +111,83 @@ class ActiveFault:
 
 
 class FaultScheduler:
-    """Seeded single-fault scheduler shared by the whole simulated plant."""
+    """Seeded mixed-fault scheduler for an ongoing, realistic operations demo."""
 
-    def __init__(self, assets: list[Asset], rng: random.Random, mode: str):
+    def __init__(self, assets: list[Asset], rng: random.Random, mode: str, emit_interval: float):
         if mode not in MODES:
             raise ValueError(f"Unknown mode: {mode}")
         self.assets = assets
         self.rng = rng
         self.mode = mode
         self.tick = 0
-        self.active_fault: ActiveFault | None = None
-        self.next_fault_tick = (
-            self.rng.randint(*WARMUP_RANGE) if mode == "faulty" else None
-        )
+        self.active_equipment: ActiveFault | None = None
+        self.active_quality: ActiveFault | None = None
+        self.warmup_ticks = max(1, math.ceil(WARMUP_SECONDS / max(emit_interval, 0.001)))
+        self.equipment_duration_ticks = max(2, math.ceil(EQUIPMENT_FAULT_DURATION_SECONDS / max(emit_interval, 0.001)))
+        self.equipment_interval_ticks = max(2, math.ceil(EQUIPMENT_FAULT_INTERVAL_SECONDS / max(emit_interval, 0.001)))
+        self.quality_duration_ticks = max(2, math.ceil(DATA_QUALITY_FAULT_DURATION_SECONDS / max(emit_interval, 0.001)))
+        self.quality_interval_ticks = max(2, math.ceil(DATA_QUALITY_FAULT_INTERVAL_SECONDS / max(emit_interval, 0.001)))
+        self.next_equipment_tick = self.warmup_ticks if mode == "faulty" else None
+        self.next_quality_tick = self.warmup_ticks + self.quality_interval_ticks if mode == "faulty" else None
+        self._equipment_deck: list[Asset] = []
+        self._quality_type_deck: list[str] = []
 
-    def advance(self) -> ActiveFault | None:
+    def _next_equipment_asset(self) -> Asset:
+        if not self._equipment_deck:
+            self._equipment_deck = list(self.assets)
+            self.rng.shuffle(self._equipment_deck)
+        return self._equipment_deck.pop()
+
+    def _next_quality_fault(self) -> tuple[Asset, str]:
+        if not self._quality_type_deck:
+            self._quality_type_deck = [
+                fault_type
+                for fault_type in DATA_QUALITY_FAULT_TYPES
+                if any(fault_type in asset.fault_types for asset in self.assets)
+            ]
+            self.rng.shuffle(self._quality_type_deck)
+        fault_type = self._quality_type_deck.pop()
+        candidates = [asset for asset in self.assets if fault_type in asset.fault_types]
+        return self.rng.choice(candidates), fault_type
+
+    @staticmethod
+    def _finished(fault: ActiveFault | None, tick: int) -> bool:
+        return fault is not None and tick >= fault.start_tick + fault.duration
+
+    def advance(self) -> tuple[ActiveFault, ...]:
         self.tick += 1
         if self.mode == "normal":
-            return None
+            return ()
 
-        if self.active_fault is not None:
-            end_tick = self.active_fault.start_tick + self.active_fault.duration
-            if self.tick >= end_tick:
-                self.active_fault = None
-                self.next_fault_tick = self.tick + self.rng.randint(*HEALTHY_GAP_RANGE)
+        if self._finished(self.active_equipment, self.tick):
+            self.active_equipment = None
+        if self._finished(self.active_quality, self.tick):
+            self.active_quality = None
 
-        if self.active_fault is None and self.tick >= (self.next_fault_tick or 0):
-            asset = self.rng.choice(self.assets)
-            self.active_fault = ActiveFault(
+        if self.active_equipment is None and self.tick >= (self.next_equipment_tick or 0):
+            asset = self._next_equipment_asset()
+            self.active_equipment = ActiveFault(
                 device_id=asset.device_id,
-                fault_type=self.rng.choice(asset.fault_types),
+                fault_type=fault_for_asset(asset),
+                kind="equipment",
                 start_tick=self.tick,
-                duration=self.rng.randint(*FAULT_DURATION_RANGE),
+                duration=self.equipment_duration_ticks,
                 severity=self.rng.uniform(0.85, 1.15),
             )
-        return self.active_fault
+            self.next_equipment_tick = self.tick + self.equipment_interval_ticks
+
+        if self.active_quality is None and self.tick >= (self.next_quality_tick or 0):
+            asset, fault_type = self._next_quality_fault()
+            self.active_quality = ActiveFault(
+                device_id=asset.device_id,
+                fault_type=fault_type,
+                kind="data_quality",
+                start_tick=self.tick,
+                duration=self.quality_duration_ticks,
+                severity=1.0,
+            )
+            self.next_quality_tick = self.tick + self.quality_interval_ticks
+        return tuple(fault for fault in (self.active_equipment, self.active_quality) if fault is not None)
 
 
 class Sensor:
@@ -143,7 +216,7 @@ class Sensor:
             asset.base_vibration, variation_range=0.08, change_rate=0.012, rng=self.rng
         )
 
-    def read(self, fault: ActiveFault | None = None, *, tick: int = 0) -> SensorReading:
+    def read(self, faults: tuple[ActiveFault, ...] = (), *, tick: int = 0) -> SensorReading:
         self.sequence_number += 1
         temperature = self.temperature.generate()["value"]
         humidity = self.humidity.generate()["value"]
@@ -151,12 +224,16 @@ class Sensor:
         duplicate = False
         fault_type = None
 
-        active = fault is not None and fault.device_id == self.device_id
+        active_faults = [fault for fault in faults if fault.device_id == self.device_id]
+        active = bool(active_faults)
         if active:
-            fault_type = fault.fault_type
-            temperature, vibration, duplicate = self._apply_fault(
+            primary = next((fault for fault in active_faults if fault.kind == "equipment"), active_faults[0])
+            fault_type = primary.fault_type
+        for fault in active_faults:
+            temperature, vibration, fault_duplicate = self._apply_fault(
                 fault, tick, temperature, vibration
             )
+            duplicate = duplicate or fault_duplicate
             if fault.fault_type == "sequence_gap" and tick % 8 == 0:
                 self.sequence_number += 1
 
@@ -193,16 +270,20 @@ class Sensor:
         vibration: float,
     ) -> tuple[float, float | None, bool]:
         progress = fault.progress(tick)
-        envelope = 1.0 - abs(2.0 * progress - 1.0)
+        # A sine envelope remains gradual over the 40-second scenario but rises
+        # fast enough for the fixed per-reading detector thresholds at the
+        # dashboard's 0.1-second demo cadence. A linear ramp was absorbed into
+        # the rolling baseline before it could produce an incident.
+        envelope = math.sin(math.pi * progress)
         severity = fault.severity
         duplicate = False
 
-        if fault.fault_type == "cavitation":
-            vibration += (1.0 + self.rng.uniform(0.2, 0.9)) * severity if tick % 5 == 0 else 0.15 * envelope
-        elif fault.fault_type == "bearing_degradation":
+        if fault.fault_type in {"cavitation", "coupling_failure"}:
+            vibration += 1.15 * envelope * severity
+        elif fault.fault_type in {"bearing_degradation", "bearing_misalignment", "bearing_local_defect", "vibration_bearing_seal_failure"}:
             vibration += 1.25 * envelope * severity
             temperature += 7.0 * envelope * severity
-        elif fault.fault_type == "blower_overheating":
+        elif fault.fault_type in {"blower_overheating", "compressor_bearing_damage"}:
             temperature += 11.0 * envelope * severity
             vibration += 0.9 * envelope * severity
         elif fault.fault_type == "shaft_imbalance":
@@ -244,12 +325,12 @@ class PlantSimulator:
             for index, asset in enumerate(self.assets)
         ]
         self.scheduler = FaultScheduler(
-            self.assets, random.Random(seed + 10_000), config.mode
+            self.assets, random.Random(seed + 10_000), config.mode, config.emit_interval
         )
 
     def read_cycle(self) -> list[SensorReading]:
-        fault = self.scheduler.advance()
-        return [sensor.read(fault, tick=self.scheduler.tick) for sensor in self.sensors]
+        faults = self.scheduler.advance()
+        return [sensor.read(faults, tick=self.scheduler.tick) for sensor in self.sensors]
 
 
 def build_sensors(
@@ -341,6 +422,8 @@ async def run_producer(config: SimulatorConfig):
     print(f"IoT producer broadcasting on {addr[0]}:{addr[1]}")
     print(f"Water treatment fleet: {config.num_devices}/{len(FLEET)} assets")
     print(f"Mode: {config.mode}; interval: {config.emit_interval}s; seed: {simulator.seed}")
+    if config.mode == "faulty":
+        print(f"Faulty workload: after {WARMUP_SECONDS:.0f}s baseline, one knowledge-backed equipment scenario runs every {EQUIPMENT_FAULT_INTERVAL_SECONDS:.0f}s for {EQUIPMENT_FAULT_DURATION_SECONDS:.0f}s; a random data-quality anomaly runs every {DATA_QUALITY_FAULT_INTERVAL_SECONDS:.0f}s for {DATA_QUALITY_FAULT_DURATION_SECONDS:.0f}s.")
     for asset in simulator.assets:
         print(f"  {asset.device_id}: {asset.asset_id} · {asset.equipment_name} · {asset.area}")
     print("Waiting for consumers to connect (or run without one — data still flows)...\n")

@@ -38,10 +38,23 @@ class RuntimeDatabase:
             );
             CREATE TABLE IF NOT EXISTS review_outcomes (
               incident_id TEXT PRIMARY KEY, outcome TEXT NOT NULL, notes TEXT NOT NULL,
-              reviewed_at REAL NOT NULL
+              reviewed_at REAL NOT NULL, knowledge_enriched INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS incident_workflow (
+              incident_id TEXT PRIMARY KEY, acknowledged_at REAL NOT NULL,
+              healthy_reading_count INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS agent_assessments (
+              incident_id TEXT PRIMARY KEY, assessment_json TEXT NOT NULL
             );
             """
         )
+        try:
+            self.connection.execute(
+                "ALTER TABLE review_outcomes ADD COLUMN knowledge_enriched INTEGER NOT NULL DEFAULT 0"
+            )
+        except sqlite3.OperationalError:
+            pass
         self.connection.commit()
 
     def close(self) -> None:
@@ -71,16 +84,42 @@ class RuntimeDatabase:
         rows = self.connection.execute("SELECT * FROM incident_retrieval_evidence").fetchall()
         return {row["incident_id"]: json.loads(row["evidence_json"]) for row in rows}
 
-    def save_review(self, incident_id: str, outcome: str, notes: str, reviewed_at: float) -> None:
+    def save_review(self, incident_id: str, outcome: str, notes: str, reviewed_at: float, knowledge_enriched: bool = False) -> None:
         self.connection.execute(
-            "INSERT INTO review_outcomes VALUES (?, ?, ?, ?) ON CONFLICT(incident_id) DO UPDATE SET outcome=excluded.outcome,notes=excluded.notes,reviewed_at=excluded.reviewed_at",
-            (incident_id, outcome, notes, reviewed_at),
+            "INSERT INTO review_outcomes VALUES (?, ?, ?, ?, ?) ON CONFLICT(incident_id) DO UPDATE SET outcome=excluded.outcome,notes=excluded.notes,reviewed_at=excluded.reviewed_at,knowledge_enriched=excluded.knowledge_enriched",
+            (incident_id, outcome, notes, reviewed_at, int(knowledge_enriched)),
         )
         self.connection.commit()
 
     def load_reviews(self) -> dict[str, dict[str, object]]:
         rows = self.connection.execute("SELECT * FROM review_outcomes").fetchall()
-        return {row["incident_id"]: {"outcome": row["outcome"], "notes": row["notes"], "reviewed_at": row["reviewed_at"]} for row in rows}
+        return {row["incident_id"]: {"outcome": row["outcome"], "notes": row["notes"], "reviewed_at": row["reviewed_at"], "knowledge_enriched": bool(row["knowledge_enriched"])} for row in rows}
+
+    def save_workflow(self, incident_id: str, acknowledged_at: float, healthy_reading_count: int) -> None:
+        self.connection.execute(
+            "INSERT INTO incident_workflow VALUES (?, ?, ?) ON CONFLICT(incident_id) DO UPDATE SET acknowledged_at=excluded.acknowledged_at,healthy_reading_count=excluded.healthy_reading_count",
+            (incident_id, acknowledged_at, healthy_reading_count),
+        )
+        self.connection.commit()
+
+    def load_workflows(self) -> dict[str, dict[str, float | int]]:
+        rows = self.connection.execute("SELECT * FROM incident_workflow").fetchall()
+        return {row["incident_id"]: {"started_at": row["acknowledged_at"], "healthy_reading_count": row["healthy_reading_count"]} for row in rows}
+
+    def clear_workflow(self, incident_id: str) -> None:
+        self.connection.execute("DELETE FROM incident_workflow WHERE incident_id=?", (incident_id,))
+        self.connection.commit()
+
+    def save_agent_assessment(self, incident_id: str, assessment: dict[str, object]) -> None:
+        self.connection.execute(
+            "INSERT INTO agent_assessments VALUES (?, ?) ON CONFLICT(incident_id) DO UPDATE SET assessment_json=excluded.assessment_json",
+            (incident_id, json.dumps(assessment)),
+        )
+        self.connection.commit()
+
+    def load_agent_assessments(self) -> dict[str, dict[str, object]]:
+        rows = self.connection.execute("SELECT * FROM agent_assessments").fetchall()
+        return {row["incident_id"]: json.loads(row["assessment_json"]) for row in rows}
 
     def save_baseline(
         self, device_id: str, values: list[float], last_sequence: int, last_timestamp: float

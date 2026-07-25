@@ -31,8 +31,8 @@ class IncidentAggregatorTests(unittest.TestCase):
         self.assertTrue(aggregator.notification_due(incident, 1))
         self.assertFalse(aggregator.notification_due(incident, 10))
         self.assertEqual(aggregator.resolve_quiet("sensor-1", 5), [])
-        self.assertEqual(aggregator.resolve_quiet("sensor-1", 11), [incident])
-        self.assertEqual(incident.state, IncidentState.RESOLVED)
+        self.assertEqual(aggregator.resolve_quiet("sensor-1", 11), [])
+        self.assertNotEqual(incident.state, IncidentState.RESOLVED)
 
 
 class DecisionPolicyTests(unittest.TestCase):

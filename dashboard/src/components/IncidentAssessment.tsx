@@ -1,23 +1,52 @@
-import { useState } from 'react'
-import type { Incident } from '../types/dashboard'
+import { useEffect, useState } from 'react'
+import type { Incident, Sensor } from '../types/dashboard'
 
 type Outcome = 'confirmed_fault' | 'false_alarm' | 'different_cause'
-type Props = { incident?: Incident; onAcknowledge: (id: string) => Promise<void>; onResolve: (id: string) => Promise<void>; onReview: (id: string, outcome: Outcome, notes: string) => Promise<void> }
+type Props = { incident?: Incident; resolvedIncident?: Incident; sensor?: Sensor; onReview: (id: string, outcome: Outcome, notes: string) => Promise<void> }
 
-function plainLanguage(incident: Incident) {
-  if (incident.category === 'DATA_QUALITY') return { title: 'The sensor data needs attention', detail: 'This is a data delivery issue, not a confirmed equipment fault.', action: 'Inspect the sensor, gateway, or network connection.' }
-  if (incident.decision === 'RECOMMEND') return { title: 'This asset needs a planned inspection', detail: 'Its behaviour differs from the normal operating pattern and matches a verified historical case.', action: 'Schedule a maintenance inspection at the next safe opportunity.' }
-  return { title: 'An engineer needs to review this asset', detail: 'The system found an unusual pattern but does not have enough verified evidence to recommend a specific repair.', action: 'Keep monitoring and ask maintenance to assess the equipment.' }
+function display(value: string | null | undefined) {
+  return value ? value.replaceAll('_', ' ') : 'Not available'
 }
 
-export function IncidentAssessment({ incident, onAcknowledge, onResolve, onReview }: Props) {
-  const [pending, setPending] = useState<string | null>(null)
+function WardenMark({ active }: { active: boolean }) {
+  return <span className={`warden-mark ${active ? 'awake' : ''}`} aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M24 5 39 13v22L24 43 9 35V13L24 5Z" /><path d="M15 24h18M24 15v18" /><circle cx="24" cy="24" r="5" /></svg></span>
+}
+
+function DiagnosisForm({ incident, onReview }: { incident: Incident; onReview: Props['onReview'] }) {
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [outcome, setOutcome] = useState<Outcome>('confirmed_fault')
   const [notes, setNotes] = useState('')
-  if (!incident) return <aside className="assessment-panel empty-assessment"><div className="panel-title"><div><p className="eyebrow">ASSESSMENT</p><h2>No action needed</h2></div></div><p>When a sensor pattern needs attention, this panel will explain what happened, what to do, and the evidence behind it.</p></aside>
-  const copy = plainLanguage(incident)
+  const submit = async () => {
+    if (notes.trim().length < 3) return
+    setError(null); setPending(true)
+    try { await onReview(incident.incident_id, outcome, notes.trim()) }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not save the diagnosis. Try again.') }
+    finally { setPending(false) }
+  }
+  return <section className="diagnosis-workspace" id="operator-diagnosis"><div><span>OPERATOR DIAGNOSIS</span><b>What was the final finding and repair?</b></div><label><span>OUTCOME</span><select name="outcome" value={outcome} onChange={(event) => setOutcome(event.target.value as Outcome)}><option value="confirmed_fault">Confirmed fault and solution</option><option value="false_alarm">False alarm</option><option value="different_cause">Different cause</option></select></label><label><span>FINDING AND REPAIR</span><textarea name="finding-and-repair" value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Describe the cause, repair, and verification completed…" /></label>{error ? <p className="diagnosis-error" role="alert">{error}</p> : null}<button className="agent-submit" type="button" disabled={pending || notes.trim().length < 3} onClick={submit}>{pending ? 'Saving diagnosis…' : 'Save diagnosis to agent memory'}</button></section>
+}
+
+export function IncidentAssessment({ incident, resolvedIncident, sensor, onReview }: Props) {
+  const [open, setOpen] = useState(false)
+  useEffect(() => setOpen(false), [incident?.incident_id, resolvedIncident?.incident_id])
+
+  if (!incident) return <aside className="assessment-panel warden-console standby"><div className="warden-heading"><WardenMark active={false} /><div><p className="eyebrow">FLOW WARDEN / AGENT CONSOLE</p><h2>Standing watch</h2><span>Monitoring every live asset</span></div><i className="warden-state">STANDBY</i></div><div className="warden-standby"><b>No active equipment investigation</b><p>Flow Warden will wake when detector evidence opens an equipment incident. Resolved scenarios are cleared from this console so the next investigation starts cleanly.</p></div>{resolvedIncident ? <section className="resolved-handoff"><span>LAST WORKFLOW CLOSED</span><b>{resolvedIncident.incident_id} returned to normal</b><p>The active knowledge scenario has been cleared. Record the maintenance finding from this completed workflow if needed.</p>{resolvedIncident.review ? <small>Operator diagnosis saved · {display(resolvedIncident.review.outcome)}</small> : <button type="button" className="agent-primary" onClick={() => setOpen((value) => !value)}>{open ? 'Close report workspace' : 'Record completed finding'}<em>→</em></button>}</section> : null}{open && resolvedIncident && !resolvedIncident.review ? <DiagnosisForm incident={resolvedIncident} onReview={onReview} /> : null}</aside>
+
+  const assessment = incident.agent_assessment
   const precedent = incident.retrieval_evidence?.[0]
-  const act = async (name: 'acknowledge' | 'resolve') => { setPending(name); try { await (name === 'acknowledge' ? onAcknowledge(incident.incident_id) : onResolve(incident.incident_id)) } finally { setPending(null) } }
-  const submitReview = async () => { if (notes.trim().length < 3) return; setPending('review'); try { await onReview(incident.incident_id, outcome, notes.trim()) } finally { setPending(null) } }
-  return <aside className="assessment-panel assessment-explained"><div className="panel-title"><div><p className="eyebrow">INCIDENT ASSESSMENT</p><h2>{incident.incident_id}</h2></div><span className={`incident-state ${incident.state.toLowerCase()}`}>{incident.state}</span></div><section className="assessment-answer"><span>WHAT IS HAPPENING</span><h3>{copy.title}</h3><p>{copy.detail}</p></section><section className="assessment-action"><span>WHAT TO DO NOW</span><p>{copy.action}</p></section><section className="assessment-why"><span>WHY THE SYSTEM FLAGGED IT</span><p><b>{incident.affected_reading_count}</b> unusual readings · detectors: <b>{incident.detectors.join(' and ') || 'monitoring rule'}</b> · highest observed value: <b>{incident.peak_observed_value?.toFixed(2) ?? '—'}</b></p></section><section className="knowledge-evidence"><span>KNOWLEDGE BASE EVIDENCE</span>{precedent ? <><b>Verified similar case: {precedent.incident_id}</b><p>{precedent.summary}</p><small>Similarity distance {precedent.distance?.toFixed(3) ?? '—'} · <a href={precedent.source_url} target="_blank" rel="noreferrer">View original source</a></small></> : <p>No verified similar case was found. The system is deliberately escalating rather than guessing.</p>}</section><div className="assessment-actions"><button className={`review-button ${incident.acknowledged ? 'requested' : ''}`} disabled={incident.acknowledged || pending !== null} onClick={() => act('acknowledge')}>{incident.acknowledged ? 'Acknowledged' : 'Acknowledge'}</button><button className="dismiss-button" disabled={incident.state === 'RESOLVED' || pending !== null} onClick={() => act('resolve')}>{incident.state === 'RESOLVED' ? 'Resolved' : 'Resolve'}</button></div><section className="operator-review"><span>HELP IMPROVE FUTURE ASSESSMENTS</span>{incident.review ? <p><b>{incident.review.outcome.replaceAll('_', ' ')}</b> — {incident.review.notes}</p> : <><select value={outcome} onChange={(event) => setOutcome(event.target.value as Outcome)}><option value="confirmed_fault">Confirmed fault</option><option value="false_alarm">False alarm</option><option value="different_cause">Different cause</option></select><textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="What did maintenance find?" /><button className="review-button" disabled={pending !== null || notes.trim().length < 3} onClick={submitReview}>{pending === 'review' ? 'Saving…' : 'Save review outcome'}</button><small>Saved for review and later curation. It never changes the knowledge base automatically.</small></>}</section></aside>
+  const modelLabel = assessment?.model && !assessment.model_fallback ? assessment.model : 'Safe deterministic assessment'
+  return <aside className="assessment-panel warden-console active-investigation">
+    <div className="warden-heading"><WardenMark active /><div><p className="eyebrow">FLOW WARDEN / ACTIVE INVESTIGATION</p><h2>{incident.incident_id}</h2><span>{sensor?.equipment_name ?? incident.device_id}</span></div><i className="warden-state">AWAKE</i></div>
+    <p className="warden-intro">Flow Warden is tracing the signal, checking the water-treatment knowledge base, and watching recovery. It does not control plant equipment.</p>
+    <ol className="trace-list">
+      <li className="trace-stage observation"><span className="trace-index">01</span><div><span className="trace-label">LIVE OBSERVATION</span><b>{sensor?.vibration === null || sensor?.vibration === undefined ? 'Vibration channel unavailable' : `${sensor.vibration.toFixed(2)} ${sensor.unit} vibration`}</b><p>{sensor ? `${sensor.temperature.toFixed(1)} °C · ${sensor.humidity === null ? 'humidity unavailable' : `${sensor.humidity.toFixed(1)}% humidity`}` : 'Waiting for the newest reading.'}</p></div></li>
+      <li className="trace-stage detected"><span className="trace-index">02</span><div><span className="trace-label">CONDITION DETECTED</span><b>{incident.detectors.length ? incident.detectors.map(display).join(' + ') : 'Condition under evaluation'}</b><p>{incident.decision ? `${display(incident.decision)} from live detector evidence and runtime policy.` : 'Policy decision is still being calculated.'}</p></div></li>
+      <li className="trace-stage retrieval"><span className="trace-index">03</span><div><span className="trace-label">KNOWLEDGE MATCH</span><b>{precedent ? `${precedent.incident_id} · ${display(assessment?.likely_fault ?? precedent.fault_family)}` : 'No verified scenario match yet'}</b><p>{precedent ? precedent.summary : 'The agent will not name a fault without verified scenario evidence.'}</p><small>{precedent ? (precedent.source_kind === 'water_treatment_simulation' ? 'Curated water-treatment scenario' : display(precedent.source_kind)) : 'Retrieval remains evidence-gated'}</small></div></li>
+      <li className="trace-stage assessment" aria-live="polite"><span className="trace-index">04</span><div><span className="trace-label">WARDEN ASSESSMENT</span><b>{assessment?.title ?? 'Evidence assessment in progress'}</b><p>{assessment?.explanation ?? 'Waiting for enough detector and scenario evidence to make a safe statement.'}</p><small>{modelLabel}</small></div></li>
+      <li className="trace-stage recovery" aria-live="polite"><span className="trace-index">05</span><div><span className="trace-label">RECOVERY WATCH</span><b>{incident.agent_active ? 'Monitoring live telemetry' : 'Waiting for new telemetry'}</b><p>{incident.agent_active ? 'The workflow closes after five consecutive healthy readings. The scenario will clear from this console once recovery is confirmed.' : 'Recovery cannot be evaluated until the live stream resumes.'}</p></div></li>
+    </ol>
+    {incident.review ? <section className="trace-review"><span>OPERATOR DIAGNOSIS SAVED</span><b>{display(incident.review.outcome)}</b><p>{incident.review.notes}</p><small>{incident.review.knowledge_enriched ? 'Saved to local knowledge for future retrieval.' : 'Saved as an incident record.'}</small></section> : <section className="trace-handoff"><div><span>OPERATOR HANDOFF</span><b>Record the inspection finding</b><p>Confirmed repairs become labeled local knowledge for a future similar incident.</p></div><button className="agent-primary" type="button" onClick={() => setOpen((value) => !value)}>{open ? 'Close diagnosis workspace' : 'Record inspection finding'}<em>→</em></button></section>}
+    {open && !incident.review ? <DiagnosisForm incident={incident} onReview={onReview} /> : null}
+  </aside>
 }

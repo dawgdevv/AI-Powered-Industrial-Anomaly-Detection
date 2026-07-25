@@ -21,12 +21,12 @@ class PersistenceAndRetrievalTests(unittest.TestCase):
                 category=IncidentCategory.EQUIPMENT_CONDITION,
                 state=IncidentState.RECOMMENDED, first_seen=1.0, last_seen=2.0,
                 detectors={"spike", "drift"}, confidence=0.9, decision="RECOMMEND",
-                retrieved_incident_ids=["KB-INC-0001"], retrieval_top_distance=0.12,
+                retrieved_incident_ids=["WT-INC-001"], retrieval_top_distance=0.12,
             )
             database.save_incident(incident)
             self.assertEqual(database.load_baseline("sensor-1"), ([0.2, 0.21], 9, 10.0))
             restored = database.load_incidents()[0]
-            self.assertEqual(restored.retrieved_incident_ids, ["KB-INC-0001"])
+            self.assertEqual(restored.retrieved_incident_ids, ["WT-INC-001"])
             self.assertEqual(restored.retrieval_top_distance, 0.12)
             database.close()
 
@@ -39,7 +39,7 @@ class PersistenceAndRetrievalTests(unittest.TestCase):
         )
         policy = DecisionPolicy()
         self.assertEqual(policy.evaluate(incident, []).decision, Decision.ESCALATE)
-        match = RetrievalMatch("KB-INC-0001", "bearing wear", {"verified": True}, 0.1)
+        match = RetrievalMatch("WT-INC-001", "bearing misalignment", {"verified": True}, 0.1)
         self.assertEqual(policy.evaluate(incident, [match]).decision, Decision.RECOMMEND)
 
     def test_runtime_policy_survives_restart(self):

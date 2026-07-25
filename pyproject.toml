@@ -9,6 +9,8 @@ dependencies = [
     "fastapi",
     "httpx",
     "opentelemetry-api>=1.0,<2.0",
+    "opentelemetry-sdk>=1.0,<2.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.0,<2.0",
     "uvicorn[standard]",
 ]
 

@@ -12,7 +12,7 @@ from iot_stream.knowledge.service import build_knowledge_store
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Index source-backed industrial incidents in Chroma")
+    parser = argparse.ArgumentParser(description="Index water-treatment incident scenarios in Chroma")
     parser.add_argument("--reset", action="store_true", help="Rebuild the collection from the JSON corpus")
     args = parser.parse_args()
 

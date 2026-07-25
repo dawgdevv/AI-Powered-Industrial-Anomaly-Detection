@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
-import type { Activity, Incident, PolicyConfig, Sensor, SensorUpdate, StreamStatus } from '../types/dashboard'
+import type { Activity, Incident, PolicyConfig, Sensor, SensorUpdate, ServiceStatus, StreamStatus } from '../types/dashboard'
 
 const EMPTY_POLICY: PolicyConfig = {
   spike_weight: 0.45,
@@ -29,8 +29,11 @@ export function useLiveDashboard() {
   const [streamError, setStreamError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [fleetSize, setFleetSize] = useState(6)
+  const [services, setServices] = useState<ServiceStatus[]>([])
   const pendingSensors = useRef(new Map<string, SensorUpdate>())
   const flushTimer = useRef<number | null>(null)
+  const latestSnapshot = useRef(0)
+  const lastLiveEventAt = useRef(Date.now())
 
   const pushActivity = useCallback((event: string, data: Record<string, unknown>) => {
     setActivity((current) => [
@@ -61,11 +64,13 @@ export function useLiveDashboard() {
   useEffect(() => {
     let cancelled = false
     let source: EventSource | null = null
+    let recoveryTimer: number | null = null
 
     const refreshSnapshots = async () => {
+      const snapshotVersion = ++latestSnapshot.current
       try {
         const [sensorData, incidentData, activityData, policyData, health] = await api.snapshots()
-        if (cancelled) return
+        if (cancelled || snapshotVersion !== latestSnapshot.current) return
         setSensors(sensorData)
         setIncidents(incidentData)
         setActivity(activityData)
@@ -73,6 +78,7 @@ export function useLiveDashboard() {
         setStreamStatus(health.stream_status)
         setStreamError(health.stream_error)
         setFleetSize(health.configured_fleet_size)
+        setServices(health.services)
       } catch (cause) {
         const error = cause instanceof Error ? cause : new Error('API snapshot failed')
         if (!cancelled) {
@@ -88,6 +94,7 @@ export function useLiveDashboard() {
 
     source = new EventSource('/api/stream')
     source.onopen = () => {
+      lastLiveEventAt.current = Date.now()
       setStreamError(null)
       void refreshSnapshots()
     }
@@ -95,34 +102,56 @@ export function useLiveDashboard() {
       setStreamStatus('reconnecting')
       setStreamError('Live API connection interrupted')
     }
-    source.addEventListener('sensor.updated', (event) => queueSensor(JSON.parse(event.data) as SensorUpdate))
-    for (const eventName of ['incident.updated', 'incident.resolved']) {
+    source.addEventListener('sensor.updated', (event) => {
+      lastLiveEventAt.current = Date.now()
+      queueSensor(JSON.parse(event.data) as SensorUpdate)
+    })
+    for (const eventName of ['incident.updated', 'incident.resolved', 'incident.recovery_updated', 'incident.agent_resolved', 'incident.assessment_updated', 'incident.reviewed']) {
       source.addEventListener(eventName, (event) => {
+        lastLiveEventAt.current = Date.now()
         const incident = JSON.parse(event.data) as Incident
         setIncidents((current) => upsertById(current, incident, 'incident_id'))
         pushActivity(eventName, incident as unknown as Record<string, unknown>)
       })
     }
     source.addEventListener('policy.updated', (event) => {
+      lastLiveEventAt.current = Date.now()
       const updatedPolicy = JSON.parse(event.data) as PolicyConfig
       setPolicy(updatedPolicy)
       pushActivity('policy.updated', updatedPolicy as unknown as Record<string, unknown>)
     })
     source.addEventListener('stream.status', (event) => {
+      lastLiveEventAt.current = Date.now()
       const status = JSON.parse(event.data) as { status: StreamStatus; error: string | null }
       setStreamStatus(status.status)
       setStreamError(status.error)
       pushActivity('stream.status', status as unknown as Record<string, unknown>)
     })
     source.addEventListener('detector.triggered', (event) => {
+      lastLiveEventAt.current = Date.now()
       const data = JSON.parse(event.data) as Record<string, unknown>
       pushActivity('detector.triggered', data)
     })
+    source.addEventListener('stream.connected', () => {
+      lastLiveEventAt.current = Date.now()
+    })
+
+    // This is not polling: it only recovers a browser/proxy connection that
+    // reports itself open but has stopped delivering the live stream.
+    recoveryTimer = window.setInterval(() => {
+      const streamIsStale = Date.now() - lastLiveEventAt.current > 8_000
+      if (!streamIsStale || cancelled) return
+      setStreamStatus('reconnecting')
+      setStreamError('Live updates paused; refreshing the current system state')
+      lastLiveEventAt.current = Date.now()
+      void refreshSnapshots()
+    }, 4_000)
 
     return () => {
       cancelled = true
       source?.close()
       if (flushTimer.current !== null) window.clearTimeout(flushTimer.current)
+      if (recoveryTimer !== null) window.clearInterval(recoveryTimer)
     }
   }, [pushActivity, queueSensor])
 
@@ -131,20 +160,10 @@ export function useLiveDashboard() {
     setPolicy(updated)
   }, [])
 
-  const acknowledge = useCallback(async (incidentId: string) => {
-    const updated = await api.acknowledge(incidentId)
-    setIncidents((current) => upsertById(current, updated, 'incident_id'))
-  }, [])
-
-  const resolve = useCallback(async (incidentId: string) => {
-    const updated = await api.resolve(incidentId)
-    setIncidents((current) => upsertById(current, updated, 'incident_id'))
-  }, [])
-
   const review = useCallback(async (incidentId: string, outcome: 'confirmed_fault' | 'false_alarm' | 'different_cause', notes: string) => {
     const updated = await api.review(incidentId, outcome, notes)
     setIncidents((current) => upsertById(current, updated, 'incident_id'))
   }, [])
 
-  return { sensors, incidents, activity, policy, streamStatus, streamError, loading, fleetSize, updatePolicy, acknowledge, resolve, review }
+  return { sensors, incidents, activity, policy, streamStatus, streamError, loading, fleetSize, services, updatePolicy, review }
 }

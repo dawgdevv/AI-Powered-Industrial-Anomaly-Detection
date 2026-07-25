@@ -94,9 +94,9 @@ Operators manage two plant modes rather than hand-authoring individual fault sce
 | Mode | Behavior |
 | --- | --- |
 | `normal` | All six assets continuously emit healthy telemetry with natural measurement noise |
-| `faulty` | A seeded scheduler selects a compatible transient fault, affected asset, severity, and duration; the asset then recovers automatically |
+| `faulty` | Continuous operational workload: a shuffled knowledge-backed equipment incident begins every 60 seconds (40-second duration), while a short data-quality anomaly begins every 30 seconds |
 
-Faulty mode can produce cavitation, bearing degradation, overheating, shaft or rotor imbalance, mechanical overload, intermittent sensor operation, duplicate events, and sequence gaps. Unaffected assets continue operating normally.
+Faulty mode cycles through all six water-treatment knowledge scenarios before repeating. It also injects duplicate events, sequence gaps, and intermittent readings independently, so traces show detector, retrieval, agent, and recovery behaviour under sustained load. Unaffected assets continue operating normally.
 
 Using the same `--seed` reproduces scheduling and telemetry decisions. Playback speed can change through `--interval` without changing the reading-based fault schedule.
 
@@ -211,7 +211,11 @@ The currently implemented routes are listed in [Current runnable system](#curren
 
 ## Current runnable system
 
-The repository contains streaming, detection, incidents, a source-backed Chroma knowledge base, retrieval-aware policy, optional restart-safe SQLite state, API, and a live dashboard. Bounded LLM explanations, full review persistence, and SigNoz are the remaining product layers.
+The repository contains streaming, detection, a per-sensor monitoring agent, source-backed Chroma retrieval, safe policy, SQLite state, API, and a live dashboard. The agent opens on an anomaly, explains the available evidence, watches every subsequent reading, and automatically resolves the software incident after five consecutive healthy readings. Operators only report what they found and how they fixed it; confirmed reports are saved as clearly labelled local knowledge and never override verified evidence or runtime policy.
+
+The agent is modular and custom-built: it exposes three read-only tools (`get_incident_context`, `get_retrieved_precedents`, and `get_recovery_status`) to a bounded Mistral explanation call through LiteLLM. If the model or gateway is unavailable, it produces the same safe deterministic assessment instead of blocking the sensor pipeline.
+
+The faulty simulator and retrieval corpus are strictly aligned to six water-treatment assets and their generated fault patterns. The corpus is a curated simulation scenario catalog for this demonstration, not a claim of real external incident history.
 
 ### Requirements
 
@@ -274,8 +278,7 @@ uv run main.py consume --json
 | `GET` | `/api/activity` | Recent bounded runtime activity |
 | `GET` | `/api/policy` | Current runtime detector policy |
 | `PUT` | `/api/policy` | Validate and apply runtime policy changes |
-| `POST` | `/api/incidents/{incident_id}/acknowledge` | Acknowledge an incident |
-| `POST` | `/api/incidents/{incident_id}/resolve` | Resolve an incident manually |
+| `POST` | `/api/incidents/{incident_id}/review` | Save the maintenance finding and solution; confirmed reports enrich local knowledge |
 | `GET` | `/api/stream` | Server-Sent Events for live dashboard updates |
 
 Current readings, bounded trends, activity, and policy settings are in memory. Set `RUNTIME_DB_PATH=data/runtime.sqlite3` to retain detector baselines, incidents, final decisions, and selected precedent IDs across API restarts.
@@ -297,12 +300,12 @@ Last reconciled with the repository on **2026-07-22**.
 | Structured historical incident knowledge base | Complete |
 | Filtered retrieval, safe escalation, and retrieval-aware policy | Complete |
 | Optional SQLite persistence for baselines and incident evidence | Complete |
-| Bounded LLM explanation and explicit abstention workflow | Planned |
-| Persistent human-review outcomes | Planned |
-| OpenTelemetry instrumentation and SigNoz experience | Planned |
+| Per-sensor monitoring agent and automatic five-reading recovery | Complete |
+| Persistent human maintenance reports and operator-knowledge enrichment | Complete |
+| OpenTelemetry custom spans and SigNoz configuration | Complete — see [SigNoz setup](docs/signoz.md) |
 | Docker/Foundry packaging and clean-clone demo | Planned |
 
-The latest verified baseline is **42 passing Python tests**, a successful dashboard lint and production build, and a real TCP smoke run that delivered readings for all six assets.
+The latest verified baseline is **48 passing Python tests**, a successful dashboard build, and a real TCP smoke run that delivered readings for all six assets.
 
 ## Project structure
 

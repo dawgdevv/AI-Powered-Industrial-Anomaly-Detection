@@ -145,6 +145,7 @@ class DriftDetector:
     def __init__(self):
         self.history = deque(maxlen=DRIFT_WINDOW)
         self._readings_since_alert = DRIFT_COOLDOWN_READINGS  # allow immediate first alert
+        self.is_drifting = False
 
     def check(self, reading: SensorReading, skip_update: bool = False) -> Optional[AnomalyEvent]:
         if reading.vibration is not None and not skip_update:
@@ -152,6 +153,7 @@ class DriftDetector:
 
         self._readings_since_alert += 1
         event = None
+        self.is_drifting = False
         if len(self.history) >= DRIFT_MIN_SAMPLES:
             half = len(self.history) // 2
             first_half = list(self.history)[:half]
@@ -160,7 +162,8 @@ class DriftDetector:
             mean_b = sum(second_half) / len(second_half)
             slope = (mean_b - mean_a) / half
 
-            if abs(slope) > DRIFT_SLOPE_THRESHOLD and self._readings_since_alert >= DRIFT_COOLDOWN_READINGS:
+            self.is_drifting = abs(slope) > DRIFT_SLOPE_THRESHOLD
+            if self.is_drifting and self._readings_since_alert >= DRIFT_COOLDOWN_READINGS:
                 event = AnomalyEvent(
                     device_id=reading.device_id,
                     timestamp=reading.timestamp,
@@ -223,3 +226,15 @@ class DeviceDetectorSet:
 
     def baseline_values(self) -> list[float]:
         return list(self.drift.history)
+
+    def equipment_is_healthy(self, reading: SensorReading) -> bool:
+        """A recovery reading must be normal, not merely free of a new alert.
+
+        Drift alerts are deliberately rate-limited, so using only emitted
+        events would wrongly count a continuing drift as healthy.
+        """
+        return (
+            reading.vibration is not None
+            and not self.spike._active
+            and not self.drift.is_drifting
+        )

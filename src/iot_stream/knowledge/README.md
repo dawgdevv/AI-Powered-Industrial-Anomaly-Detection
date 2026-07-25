@@ -1,14 +1,13 @@
 # Incident Knowledge Base
 
-This directory contains a 20-record, source-backed retrieval corpus for the industrial diagnosis agent.
+This directory contains six curated water-treatment incident scenarios for the mock-plant diagnosis agent.
 
 ## Provenance rules
 
-- Every record is based on a publicly accessible source and carries its source URL.
-- `source_kind` distinguishes field incidents, public maintenance cases, and experimental run-to-failure records.
-- `verified` means the source is a government, public-sector, peer-reviewed, or named industrial case source—not that the project independently validated the event.
-- Numeric readings are omitted unless the source states them. The agent must not invent measurements, thresholds, or maintenance history.
-- `derived_operational_next_step` is a conservative project interpretation for the demo; it is not presented as a source-authorized maintenance procedure.
+- Every record is a `water_treatment_simulation` scenario aligned one-to-one with a mock-fleet asset and fault pattern.
+- `verified` means the scenario has been curated and covered by the deterministic simulator test. It does not claim to be an external, real-world incident source.
+- The agent must not invent measurements, thresholds, or maintenance history beyond the scenario record.
+- `derived_operational_next_step` is a conservative demo action, not a real maintenance procedure.
 
 ## Data shape
 
@@ -21,7 +20,7 @@ This directory contains a 20-record, source-backed retrieval corpus for the indu
 
 ## Retrieval constraints
 
-Filter by `equipment_type`, `sensor_types`, and `incident_category` before semantic search. Do not use experimental records as a direct basis for a field recommendation without an explicit `source_kind` warning.
+Filter by `equipment_type`, `sensor_types`, and `incident_category` before semantic search. Each mock asset has an exact scenario match; cross-industry aliases are intentionally not indexed.
 
 ## Inference boundary
 

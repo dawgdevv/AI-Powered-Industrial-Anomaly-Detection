@@ -1,7 +1,19 @@
 import type { Activity, Health, Incident, PolicyConfig, Sensor } from '../types/dashboard'
 
+const REQUEST_TIMEOUT_MS = 8_000
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, init)
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+  let response: Response
+  try {
+    response = await fetch(path, { ...init, signal: controller.signal })
+  } catch (cause) {
+    if (controller.signal.aborted) throw new Error(`Request timed out for ${path}`)
+    throw cause
+  } finally {
+    window.clearTimeout(timeout)
+  }
   if (!response.ok) {
     const body = await response.json().catch(() => null)
     const detail = body?.detail
@@ -26,7 +38,5 @@ export const api = {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(policy),
   }),
-  acknowledge: (incidentId: string) => request<Incident>(`/api/incidents/${incidentId}/acknowledge`, { method: 'POST' }),
-  resolve: (incidentId: string) => request<Incident>(`/api/incidents/${incidentId}/resolve`, { method: 'POST' }),
   review: (incidentId: string, outcome: 'confirmed_fault' | 'false_alarm' | 'different_cause', notes: string) => request<Incident>(`/api/incidents/${incidentId}/review`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ outcome, notes }) }),
 }

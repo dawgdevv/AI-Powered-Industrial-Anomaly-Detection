@@ -40,7 +40,8 @@ class IncidentRetriever:
             raise ValueError("embedding client returned an empty vector")
 
         with span(
-            "retrieve_similar_incidents",
+            "knowledge.retrieve",
+            knowledge_collection="water_treatment_incidents",
             equipment_type=query.equipment_type,
             sensor_type=query.sensor_type,
             incident_category=query.incident_category,
@@ -59,6 +60,10 @@ class IncidentRetriever:
             )
             matches = self._matches_from_result(result)
             active_span.set_attribute("retrieval.result_count", len(matches))
+            if matches:
+                active_span.set_attribute("retrieval.top_incident_id", matches[0].incident_id)
+                active_span.set_attribute("retrieval.top_distance", matches[0].distance if matches[0].distance is not None else -1.0)
+                active_span.set_attribute("retrieval.top_source_kind", str(matches[0].metadata.get("source_kind", "unknown")))
             return matches
 
     def get_incidents(self, incident_ids: Sequence[str]) -> list[RetrievalMatch]:

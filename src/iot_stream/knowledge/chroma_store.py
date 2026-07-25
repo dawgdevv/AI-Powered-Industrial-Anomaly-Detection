@@ -1,4 +1,4 @@
-"""Persistent local Chroma store for source-backed incident records."""
+"""Persistent local Chroma store for water-treatment incident scenarios."""
 
 from __future__ import annotations
 
@@ -10,9 +10,10 @@ from typing import Any
 import chromadb
 
 from iot_stream.knowledge.models import RetrievalMatch
+from iot_stream.incidents.models import Incident
 from iot_stream.telemetry import span
 
-COLLECTION_NAME = "industrial_incidents"
+COLLECTION_NAME = "water_treatment_incidents"
 CORPUS_PATH = Path(__file__).with_name("incidents.json")
 
 
@@ -69,6 +70,36 @@ class ChromaIncidentStore:
                 )
         return len(documents)
 
+    def upsert_operator_report(
+        self, incident: Incident, notes: str, equipment_type: str, sensor_type: str,
+        embeddings: "EmbeddingBatchClient",
+    ) -> None:
+        """Index an operator-confirmed resolution as clearly labelled local evidence."""
+        text = "\n".join((
+            "Operator-confirmed maintenance report",
+            f"Incident: {incident.incident_id}",
+            f"Equipment: {incident.device_id}",
+            f"Detected pattern: {', '.join(sorted(incident.detectors))}",
+            f"Maintenance finding and solution: {notes}",
+        ))
+        vector = embeddings.embed_documents([text])[0]
+        self._collection.upsert(
+            ids=[f"operator-report:{incident.incident_id}"],
+            documents=[text],
+            metadatas=[{
+                "incident_id": f"operator-report:{incident.incident_id}",
+                "equipment_type": equipment_type,
+                "sensor_type": sensor_type,
+                "incident_category": incident.category.value,
+                "pattern_type": "operator_confirmed",
+                "fault_family": "operator_confirmed",
+                "source_kind": "operator_report",
+                "verified": False,
+                "source_url": "",
+            }],
+            embeddings=[vector],
+        )
+
 
 class EmbeddingBatchClient:
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
@@ -112,6 +143,7 @@ def _documents(records: Iterable[dict[str, Any]]) -> Iterable[dict[str, Any]]:
                     "source_kind": record["source_kind"],
                     "verified": record["verified"],
                     "source_url": source["url"],
+                    "equipment_match": "exact",
                 },
             }
 

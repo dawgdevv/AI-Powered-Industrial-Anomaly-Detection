@@ -68,6 +68,7 @@ class IncidentAggregator:
             if (
                 active_device == device_id
                 and incident.state is not IncidentState.RESOLVED
+                and incident.category is IncidentCategory.DATA_QUALITY
                 and timestamp - incident.last_seen >= self.quiet_period_seconds
             ):
                 incident.state = IncidentState.RESOLVED

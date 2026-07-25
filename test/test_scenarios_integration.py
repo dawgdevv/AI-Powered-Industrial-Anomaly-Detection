@@ -1,10 +1,15 @@
+import json
 import unittest
+from pathlib import Path
 
-from simulator.producer import FLEET, PlantSimulator, generate_mode_readings
+from simulator.producer import FLEET, PlantSimulator, fault_for_asset, generate_mode_readings
 from simulator.types import SimulatorConfig
 
 from iot_stream.pipeline.detectors import DeviceDetectorSet
 from iot_stream.schemas import SensorReading
+
+
+CORPUS_PATH = Path(__file__).parents[1] / "src/iot_stream/knowledge/incidents.json"
 
 
 class FleetAndModeTests(unittest.TestCase):
@@ -25,29 +30,38 @@ class FleetAndModeTests(unittest.TestCase):
         self.assertTrue(all(not item.fault_active for item in readings))
         self.assertTrue(all(item.fault_type is None for item in readings))
 
-    def test_faulty_mode_is_transient_and_only_affects_one_asset_at_a_time(self):
+    def test_faulty_mode_runs_one_equipment_and_one_data_quality_condition_at_most(self):
         simulator = PlantSimulator(
             SimulatorConfig(seed=42, mode="faulty", num_devices=6),
             timestamp_origin=1_700_000_000.0,
         )
-        cycles = [simulator.read_cycle() for _ in range(320)]
-        active_cycles = [cycle for cycle in cycles if any(r.fault_active for r in cycle)]
-        self.assertTrue(active_cycles)
-        self.assertTrue(
-            all(sum(reading.fault_active for reading in cycle) == 1 for cycle in active_cycles)
-        )
-        first_fault_device = next(r.device_id for r in active_cycles[0] if r.fault_active)
-        first_active_index = next(
-            index
-            for index, cycle in enumerate(cycles)
-            if any(r.device_id == first_fault_device and r.fault_active for r in cycle)
-        )
-        self.assertTrue(
-            any(
-                not next(r for r in cycle if r.device_id == first_fault_device).fault_active
-                for cycle in cycles[first_active_index + 90 :]
-            )
-        )
+        equipment_starts = []
+        quality_starts = []
+        for _ in range(360):
+            simulator.read_cycle()
+            equipment = simulator.scheduler.active_equipment
+            quality = simulator.scheduler.active_quality
+            self.assertIn(equipment.kind if equipment else None, {None, "equipment"})
+            self.assertIn(quality.kind if quality else None, {None, "data_quality"})
+            if equipment and equipment.start_tick == simulator.scheduler.tick:
+                equipment_starts.append(equipment.device_id)
+            if quality and quality.start_tick == simulator.scheduler.tick:
+                quality_starts.append(quality.fault_type)
+
+        self.assertGreaterEqual(len(equipment_starts), 3)
+        self.assertGreaterEqual(len(quality_starts), 5)
+        self.assertEqual(len(equipment_starts), len(set(equipment_starts)))
+
+    def test_each_knowledge_scenario_appears_before_the_equipment_deck_repeats(self):
+        simulator = PlantSimulator(SimulatorConfig(seed=42, mode="faulty", num_devices=6))
+        equipment_starts = []
+        for _ in range(750):
+            simulator.read_cycle()
+            equipment = simulator.scheduler.active_equipment
+            if equipment and equipment.start_tick == simulator.scheduler.tick:
+                equipment_starts.append(equipment.device_id)
+
+        self.assertEqual(set(equipment_starts[: len(FLEET)]), {asset.device_id for asset in FLEET})
 
     def test_scheduler_only_selects_faults_compatible_with_asset(self):
         readings = generate_mode_readings("faulty", 7, 500)
@@ -57,6 +71,17 @@ class FleetAndModeTests(unittest.TestCase):
         self.assertTrue(
             all(reading.fault_type in assets[reading.device_id].fault_types for reading in active)
         )
+
+    def test_every_demo_fault_has_an_exact_water_treatment_scenario(self):
+        """Keep the random video demo aligned with its visible knowledge-base match."""
+        scenarios = json.loads(CORPUS_PATH.read_text(encoding="utf-8"))
+        scenarios_by_id = {scenario["incident_id"]: scenario for scenario in scenarios}
+        self.assertEqual({asset.knowledge_incident_id for asset in FLEET}, set(scenarios_by_id))
+        self.assertTrue(all(
+            scenarios_by_id[asset.knowledge_incident_id]["equipment_type"] == asset.equipment_type
+            and scenarios_by_id[asset.knowledge_incident_id]["fault_family"] == fault_for_asset(asset)
+            for asset in FLEET
+        ))
 
 
 class DetectionBoundaryTests(unittest.TestCase):

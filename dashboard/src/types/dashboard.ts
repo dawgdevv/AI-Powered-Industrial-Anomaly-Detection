@@ -35,13 +35,14 @@ export type Incident = {
   confidence: number
   decision: 'RECOMMEND' | 'ESCALATE' | 'MONITOR' | 'DATA_QUALITY_ALERT' | null
   reason_codes: string[]
-  acknowledged: boolean
-  manually_resolved: boolean
+  agent_active: boolean
+  automatically_resolved: boolean
   retrieved_incident_ids?: string[]
   retrieval_top_distance?: number | null
   retrieval_second_distance?: number | null
-  retrieval_evidence?: Array<{ incident_id: string; distance: number | null; verified: boolean; source_url: string; summary: string }>
-  review?: { outcome: 'confirmed_fault' | 'false_alarm' | 'different_cause'; notes: string; reviewed_at: number } | null
+  retrieval_evidence?: Array<{ incident_id: string; distance: number | null; verified: boolean; source_url: string; fault_family?: string; source_kind?: string; summary: string }>
+  review?: { outcome: 'confirmed_fault' | 'false_alarm' | 'different_cause'; notes: string; reviewed_at: number; knowledge_enriched?: boolean } | null
+  agent_assessment?: { title: string; explanation: string; operator_action: string; likely_fault: string | null; cited_incident_ids: string[]; abstained: boolean; abstention_reason: string | null; model: string | null; model_fallback: boolean } | null
 }
 
 export type PolicyConfig = {
@@ -68,4 +69,14 @@ export type Health = {
   sensor_count: number
   configured_fleet_size: number
   incident_count: number
+  services: ServiceStatus[]
+}
+
+export type ServiceState = 'active' | 'standby' | 'degraded' | 'down'
+
+export type ServiceStatus = {
+  id: string
+  name: string
+  state: ServiceState
+  detail: string
 }

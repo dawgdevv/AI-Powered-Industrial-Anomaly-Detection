@@ -17,6 +17,7 @@ from iot_stream.api.models import KnowledgeSearchRequest, PolicyConfig, ReviewRe
 from iot_stream.api.runtime import CONFIGURED_FLEET_SIZE, StreamRuntime
 from iot_stream.incidents.models import IncidentCategory, IncidentState
 from iot_stream.knowledge import RetrievalQuery, build_incident_retriever, build_knowledge_store
+from iot_stream.telemetry import configure_telemetry, health_status as telemetry_health_status, shutdown_telemetry
 
 
 def create_app(
@@ -29,6 +30,7 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        configure_telemetry()
         task = asyncio.create_task(live_runtime.run()) if start_worker else None
         try:
             yield
@@ -37,6 +39,7 @@ def create_app(
                 task.cancel()
                 with suppress(asyncio.CancelledError):
                     await task
+            shutdown_telemetry()
 
     app = FastAPI(
         title="IoT Anomaly Control API",
@@ -56,6 +59,63 @@ def create_app(
     @app.get("/api/health")
     async def health() -> dict:
         store = live_runtime.store
+        reading_age = None if store.last_reading_at is None else time.time() - store.last_reading_at
+        stream_live = store.stream_status == "connected" and (reading_age is None or reading_age < 15)
+        try:
+            document_count = build_knowledge_store().count()
+            knowledge = {
+                "id": "knowledge",
+                "name": "Chroma knowledge base",
+                "state": "active" if document_count else "degraded",
+                "detail": f"{document_count} indexed water-treatment records" if document_count else "No incident records indexed",
+            }
+        except Exception:
+            knowledge = {
+                "id": "knowledge",
+                "name": "Chroma knowledge base",
+                "state": "down",
+                "detail": "The local scenario store is unavailable",
+            }
+        telemetry = telemetry_health_status()
+        services = [
+            {
+                "id": "stream",
+                "name": "Telemetry stream",
+                "state": "active" if stream_live else ("degraded" if store.stream_status != "unavailable" else "down"),
+                "detail": "Live sensor feed is flowing" if stream_live else (store.stream_error or "Waiting for the sensor feed"),
+            },
+            {
+                "id": "detectors",
+                "name": "Detector engine",
+                "state": "active" if stream_live else "standby",
+                "detail": "Evaluating vibration, drift, and data quality" if stream_live else "Starts when telemetry arrives",
+            },
+            {
+                "id": "incidents",
+                "name": "Incident workflow",
+                "state": "active" if stream_live else "standby",
+                "detail": "Grouping evidence and monitoring recovery" if stream_live else "Waiting for detector evidence",
+            },
+            knowledge,
+            {
+                "id": "agent",
+                "name": "Flow Warden agent",
+                "state": "active" if live_runtime.agent.model_available else "standby",
+                "detail": "Mistral assessment is available" if live_runtime.agent.model_available else "Safe deterministic assessment is ready",
+            },
+            {
+                "id": "policy",
+                "name": "Runtime policy store",
+                "state": "active" if live_runtime.database is not None else "standby",
+                "detail": "SQLite persistence is enabled" if live_runtime.database is not None else "In-memory policy for this session",
+            },
+            {
+                "id": "observability",
+                "name": "SigNoz telemetry",
+                "state": telemetry["state"],
+                "detail": telemetry["detail"],
+            },
+        ]
         return {
             "api": "ok",
             "stream_status": store.stream_status,
@@ -65,6 +125,7 @@ def create_app(
             "sensor_count": len(store.sensors),
             "configured_fleet_size": CONFIGURED_FLEET_SIZE,
             "incident_count": len(store.incidents),
+            "services": services,
         }
 
     @app.get("/api/knowledge/health")
@@ -78,7 +139,7 @@ def create_app(
             ) from error
         return {
             "status": "ready" if count else "empty",
-            "collection": "industrial_incidents",
+            "collection": "water_treatment_incidents",
             "document_count": count,
             "persist_path": os.getenv("CHROMA_PERSIST_PATH", "data/chroma"),
         }
@@ -152,20 +213,6 @@ def create_app(
     async def update_policy(config: PolicyConfig) -> dict:
         return await live_runtime.update_policy(config)
 
-    @app.post("/api/incidents/{incident_id}/acknowledge")
-    async def acknowledge(incident_id: str) -> dict:
-        snapshot = await live_runtime.acknowledge(incident_id)
-        if snapshot is None:
-            raise HTTPException(status_code=404, detail="incident not found")
-        return snapshot
-
-    @app.post("/api/incidents/{incident_id}/resolve")
-    async def resolve(incident_id: str) -> dict:
-        snapshot = await live_runtime.resolve(incident_id)
-        if snapshot is None:
-            raise HTTPException(status_code=404, detail="incident not found")
-        return snapshot
-
     @app.post("/api/incidents/{incident_id}/review")
     async def review(incident_id: str, request_body: ReviewRequest) -> dict:
         snapshot = await live_runtime.review(incident_id, request_body)
@@ -180,6 +227,7 @@ def create_app(
         async def event_source() -> AsyncIterator[str]:
             try:
                 yield "retry: 2000\n\n"
+                yield f"event: stream.connected\ndata: {json.dumps({'connected_at': time.time()})}\n\n"
                 while True:
                     if await request.is_disconnected():
                         break
