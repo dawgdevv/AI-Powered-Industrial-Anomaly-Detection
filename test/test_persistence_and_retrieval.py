@@ -22,12 +22,14 @@ class PersistenceAndRetrievalTests(unittest.TestCase):
                 state=IncidentState.RECOMMENDED, first_seen=1.0, last_seen=2.0,
                 detectors={"spike", "drift"}, confidence=0.9, decision="RECOMMEND",
                 retrieved_incident_ids=["WT-INC-001"], retrieval_top_distance=0.12,
+                trace_id="0123456789abcdef0123456789abcdef",
             )
             database.save_incident(incident)
             self.assertEqual(database.load_baseline("sensor-1"), ([0.2, 0.21], 9, 10.0))
             restored = database.load_incidents()[0]
             self.assertEqual(restored.retrieved_incident_ids, ["WT-INC-001"])
             self.assertEqual(restored.retrieval_top_distance, 0.12)
+            self.assertEqual(restored.trace_id, "0123456789abcdef0123456789abcdef")
             database.close()
 
     def test_verified_retrieval_is_required_when_matches_are_supplied(self):

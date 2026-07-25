@@ -71,7 +71,7 @@ This checklist turns the project goals in [context.md](context.md), [PROBLEM.md]
 
 - [x] Create a `sensor.process` root trace with detector, incident, retrieval, policy, agent, and recovery spans.
 - [x] Instrument the live detector, retrieval, policy, agent, and recovery path with OpenTelemetry.
-- [ ] Propagate trace IDs through API responses and dashboard deep links.
+- [x] Propagate trace IDs through API responses and dashboard deep links.
 - [x] Emit reading, anomaly, retrieval, agent-latency, auto-resolution, processing-duration, and incident-duration metrics.
 - [x] Send correlated structured logs for detected incidents, knowledge matches, assessments, and auto-resolutions.
 - [x] Build the Water Treatment Agent — Trust & Recovery SigNoz dashboard.
@@ -88,7 +88,7 @@ This checklist turns the project goals in [context.md](context.md), [PROBLEM.md]
 - [x] Create FastAPI endpoints for fleet status, sensor detail, incident history, policy configuration, and review actions.
 - [x] Replace dashboard mock arrays with API snapshots and live SSE data.
 - [x] Show detector outputs, retrieval evidence, agent assessment, recovery state, and operator handoff in the active Flow Warden console.
-- [ ] Link each incident to its SigNoz trace.
+- [x] Link each incident to its SigNoz trace.
 - [x] Add a human maintenance-report workflow that can enrich local knowledge after a completed incident.
 
 ## Testing and Demo Readiness
@@ -100,7 +100,7 @@ This checklist turns the project goals in [context.md](context.md), [PROBLEM.md]
 - [x] Add filtered retrieval tests, known-scenario alignment tests, and safe no-precedent behavior.
 - [x] Add confidence-threshold and safety-policy tests.
 - [x] Add end-to-end tests for normal operation, transient faults, and data quality.
-- [ ] Add trace-creation verification.
+- [x] Add an OTLP HTTP trace-export verification test with a local test collector.
 - [x] Add `.env.example` and a local SigNoz/Foundry setup guide.
 - [ ] Add project-owned Docker/Foundry packaging and pin production dependencies.
 - [ ] Verify a clean-clone, one-command demo.
@@ -109,5 +109,5 @@ This checklist turns the project goals in [context.md](context.md), [PROBLEM.md]
 ## Next Milestone
 
 The highest-value remaining slice is: **clean-clone packaging and demo proof** —
-fast judge mode, trace/deep-link verification, alert rules, screenshots/video,
-and a reproducible one-command launch path.
+fast judge mode, saved alert rules, screenshots/video, and a reproducible
+one-command launch path.

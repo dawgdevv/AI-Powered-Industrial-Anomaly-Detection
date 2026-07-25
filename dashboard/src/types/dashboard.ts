@@ -37,6 +37,7 @@ export type Incident = {
   reason_codes: string[]
   agent_active: boolean
   automatically_resolved: boolean
+  trace_id?: string | null
   retrieved_incident_ids?: string[]
   retrieval_top_distance?: number | null
   retrieval_second_distance?: number | null

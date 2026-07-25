@@ -3,6 +3,7 @@ import type { Incident, Sensor } from '../types/dashboard'
 
 type Outcome = 'confirmed_fault' | 'false_alarm' | 'different_cause'
 type Props = { incident?: Incident; resolvedIncident?: Incident; sensor?: Sensor; onReview: (id: string, outcome: Outcome, notes: string) => Promise<void> }
+const signozBaseUrl = (import.meta.env.VITE_SIGNOZ_URL || 'http://localhost:8080').replace(/\/+$/, '')
 
 function display(value: string | null | undefined) {
   return value ? value.replaceAll('_', ' ') : 'Not available'
@@ -10,6 +11,11 @@ function display(value: string | null | undefined) {
 
 function WardenMark({ active }: { active: boolean }) {
   return <span className={`warden-mark ${active ? 'awake' : ''}`} aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M24 5 39 13v22L24 43 9 35V13L24 5Z" /><path d="M15 24h18M24 15v18" /><circle cx="24" cy="24" r="5" /></svg></span>
+}
+
+function TraceLink({ incident }: { incident: Incident }) {
+  if (!incident.trace_id) return <small className="trace-link-unavailable">Trace link appears when OTLP export is enabled.</small>
+  return <a className="trace-link" href={`${signozBaseUrl}/trace/${incident.trace_id}`} target="_blank" rel="noreferrer"><span>OPEN TRACE IN SIGNOZ</span><code>{incident.trace_id.slice(0, 8)}…{incident.trace_id.slice(-6)}</code><em>↗</em></a>
 }
 
 function DiagnosisForm({ incident, onReview }: { incident: Incident; onReview: Props['onReview'] }) {
@@ -31,7 +37,7 @@ export function IncidentAssessment({ incident, resolvedIncident, sensor, onRevie
   const [open, setOpen] = useState(false)
   useEffect(() => setOpen(false), [incident?.incident_id, resolvedIncident?.incident_id])
 
-  if (!incident) return <aside className="assessment-panel warden-console standby"><div className="warden-heading"><WardenMark active={false} /><div><p className="eyebrow">FLOW WARDEN / AGENT CONSOLE</p><h2>Standing watch</h2><span>Monitoring every live asset</span></div><i className="warden-state">STANDBY</i></div><div className="warden-standby"><b>No active equipment investigation</b><p>Flow Warden will wake when detector evidence opens an equipment incident. Resolved scenarios are cleared from this console so the next investigation starts cleanly.</p></div>{resolvedIncident ? <section className="resolved-handoff"><span>LAST WORKFLOW CLOSED</span><b>{resolvedIncident.incident_id} returned to normal</b><p>The active knowledge scenario has been cleared. Record the maintenance finding from this completed workflow if needed.</p>{resolvedIncident.review ? <small>Operator diagnosis saved · {display(resolvedIncident.review.outcome)}</small> : <button type="button" className="agent-primary" onClick={() => setOpen((value) => !value)}>{open ? 'Close report workspace' : 'Record completed finding'}<em>→</em></button>}</section> : null}{open && resolvedIncident && !resolvedIncident.review ? <DiagnosisForm incident={resolvedIncident} onReview={onReview} /> : null}</aside>
+  if (!incident) return <aside className="assessment-panel warden-console standby"><div className="warden-heading"><WardenMark active={false} /><div><p className="eyebrow">FLOW WARDEN / AGENT CONSOLE</p><h2>Standing watch</h2><span>Monitoring every live asset</span></div><i className="warden-state">STANDBY</i></div><div className="warden-standby"><b>No active equipment investigation</b><p>Flow Warden will wake when detector evidence opens an equipment incident. Resolved scenarios are cleared from this console so the next investigation starts cleanly.</p></div>{resolvedIncident ? <section className="resolved-handoff"><span>LAST WORKFLOW CLOSED</span><b>{resolvedIncident.incident_id} returned to normal</b><p>The active knowledge scenario has been cleared. Record the maintenance finding from this completed workflow if needed.</p><TraceLink incident={resolvedIncident} />{resolvedIncident.review ? <small>Operator diagnosis saved · {display(resolvedIncident.review.outcome)}</small> : <button type="button" className="agent-primary" onClick={() => setOpen((value) => !value)}>{open ? 'Close report workspace' : 'Record completed finding'}<em>→</em></button>}</section> : null}{open && resolvedIncident && !resolvedIncident.review ? <DiagnosisForm incident={resolvedIncident} onReview={onReview} /> : null}</aside>
 
   const assessment = incident.agent_assessment
   const precedent = incident.retrieval_evidence?.[0]
@@ -39,6 +45,7 @@ export function IncidentAssessment({ incident, resolvedIncident, sensor, onRevie
   return <aside className="assessment-panel warden-console active-investigation">
     <div className="warden-heading"><WardenMark active /><div><p className="eyebrow">FLOW WARDEN / ACTIVE INVESTIGATION</p><h2>{incident.incident_id}</h2><span>{sensor?.equipment_name ?? incident.device_id}</span></div><i className="warden-state">AWAKE</i></div>
     <p className="warden-intro">Flow Warden is tracing the signal, checking the water-treatment knowledge base, and watching recovery. It does not control plant equipment.</p>
+    <TraceLink incident={incident} />
     <ol className="trace-list">
       <li className="trace-stage observation"><span className="trace-index">01</span><div><span className="trace-label">LIVE OBSERVATION</span><b>{sensor?.vibration === null || sensor?.vibration === undefined ? 'Vibration channel unavailable' : `${sensor.vibration.toFixed(2)} ${sensor.unit} vibration`}</b><p>{sensor ? `${sensor.temperature.toFixed(1)} °C · ${sensor.humidity === null ? 'humidity unavailable' : `${sensor.humidity.toFixed(1)}% humidity`}` : 'Waiting for the newest reading.'}</p></div></li>
       <li className="trace-stage detected"><span className="trace-index">02</span><div><span className="trace-label">CONDITION DETECTED</span><b>{incident.detectors.length ? incident.detectors.map(display).join(' + ') : 'Condition under evaluation'}</b><p>{incident.decision ? `${display(incident.decision)} from live detector evidence and runtime policy.` : 'Policy decision is still being calculated.'}</p></div></li>

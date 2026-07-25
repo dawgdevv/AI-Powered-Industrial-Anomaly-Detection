@@ -28,7 +28,7 @@ class RuntimeDatabase:
               peak_severity TEXT NOT NULL, peak_observed_value REAL, confidence REAL NOT NULL,
               decision TEXT, reason_codes_json TEXT NOT NULL, retrieved_ids_json TEXT NOT NULL,
               retrieval_top_distance REAL, retrieval_second_distance REAL,
-              last_notified_at REAL, reading_ids_json TEXT NOT NULL
+              last_notified_at REAL, trace_id TEXT, reading_ids_json TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS runtime_policy (
               id INTEGER PRIMARY KEY CHECK (id = 1), policy_json TEXT NOT NULL
@@ -53,6 +53,10 @@ class RuntimeDatabase:
             self.connection.execute(
                 "ALTER TABLE review_outcomes ADD COLUMN knowledge_enriched INTEGER NOT NULL DEFAULT 0"
             )
+        except sqlite3.OperationalError:
+            pass
+        try:
+            self.connection.execute("ALTER TABLE incidents ADD COLUMN trace_id TEXT")
         except sqlite3.OperationalError:
             pass
         self.connection.commit()
@@ -138,13 +142,33 @@ class RuntimeDatabase:
 
     def save_incident(self, incident: Incident) -> None:
         self.connection.execute(
-            "INSERT INTO incidents VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(incident_id) DO UPDATE SET state=excluded.state,last_seen=excluded.last_seen,affected_reading_count=excluded.affected_reading_count,detectors_json=excluded.detectors_json,peak_severity=excluded.peak_severity,peak_observed_value=excluded.peak_observed_value,confidence=excluded.confidence,decision=excluded.decision,reason_codes_json=excluded.reason_codes_json,retrieved_ids_json=excluded.retrieved_ids_json,retrieval_top_distance=excluded.retrieval_top_distance,retrieval_second_distance=excluded.retrieval_second_distance,last_notified_at=excluded.last_notified_at,reading_ids_json=excluded.reading_ids_json",
-            (incident.incident_id, incident.device_id, incident.category.value, incident.state.value, incident.first_seen, incident.last_seen, incident.affected_reading_count, json.dumps(sorted(incident.detectors)), incident.peak_severity, incident.peak_observed_value, incident.confidence, incident.decision, json.dumps(incident.reason_codes), json.dumps(incident.retrieved_incident_ids), incident.retrieval_top_distance, incident.retrieval_second_distance, incident.last_notified_at, json.dumps(sorted(incident._reading_ids))),
+            """INSERT INTO incidents (
+                incident_id, device_id, category, state, first_seen, last_seen,
+                affected_reading_count, detectors_json, peak_severity,
+                peak_observed_value, confidence, decision, reason_codes_json,
+                retrieved_ids_json, retrieval_top_distance, retrieval_second_distance,
+                last_notified_at, trace_id, reading_ids_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(incident_id) DO UPDATE SET
+                state=excluded.state, last_seen=excluded.last_seen,
+                affected_reading_count=excluded.affected_reading_count,
+                detectors_json=excluded.detectors_json,
+                peak_severity=excluded.peak_severity,
+                peak_observed_value=excluded.peak_observed_value,
+                confidence=excluded.confidence, decision=excluded.decision,
+                reason_codes_json=excluded.reason_codes_json,
+                retrieved_ids_json=excluded.retrieved_ids_json,
+                retrieval_top_distance=excluded.retrieval_top_distance,
+                retrieval_second_distance=excluded.retrieval_second_distance,
+                last_notified_at=excluded.last_notified_at,
+                trace_id=COALESCE(incidents.trace_id, excluded.trace_id),
+                reading_ids_json=excluded.reading_ids_json""",
+            (incident.incident_id, incident.device_id, incident.category.value, incident.state.value, incident.first_seen, incident.last_seen, incident.affected_reading_count, json.dumps(sorted(incident.detectors)), incident.peak_severity, incident.peak_observed_value, incident.confidence, incident.decision, json.dumps(incident.reason_codes), json.dumps(incident.retrieved_incident_ids), incident.retrieval_top_distance, incident.retrieval_second_distance, incident.last_notified_at, incident.trace_id, json.dumps(sorted(incident._reading_ids))),
         )
         self.connection.commit()
 
     def load_incidents(self) -> list[Incident]:
         rows = self.connection.execute("SELECT * FROM incidents ORDER BY last_seen DESC").fetchall()
         return [Incident(
-            incident_id=row["incident_id"], device_id=row["device_id"], category=IncidentCategory(row["category"]), state=IncidentState(row["state"]), first_seen=row["first_seen"], last_seen=row["last_seen"], affected_reading_count=row["affected_reading_count"], detectors=set(json.loads(row["detectors_json"])), peak_severity=row["peak_severity"], peak_observed_value=row["peak_observed_value"], confidence=row["confidence"], decision=row["decision"], reason_codes=json.loads(row["reason_codes_json"]), retrieved_incident_ids=json.loads(row["retrieved_ids_json"]), retrieval_top_distance=row["retrieval_top_distance"], retrieval_second_distance=row["retrieval_second_distance"], last_notified_at=row["last_notified_at"], _reading_ids=set(json.loads(row["reading_ids_json"])),
+            incident_id=row["incident_id"], device_id=row["device_id"], category=IncidentCategory(row["category"]), state=IncidentState(row["state"]), first_seen=row["first_seen"], last_seen=row["last_seen"], affected_reading_count=row["affected_reading_count"], detectors=set(json.loads(row["detectors_json"])), peak_severity=row["peak_severity"], peak_observed_value=row["peak_observed_value"], confidence=row["confidence"], decision=row["decision"], reason_codes=json.loads(row["reason_codes_json"]), retrieved_incident_ids=json.loads(row["retrieved_ids_json"]), retrieval_top_distance=row["retrieval_top_distance"], retrieval_second_distance=row["retrieval_second_distance"], last_notified_at=row["last_notified_at"], trace_id=row["trace_id"], _reading_ids=set(json.loads(row["reading_ids_json"])),
         ) for row in rows]

@@ -23,9 +23,11 @@ from iot_stream.telemetry import (
     event as telemetry_event,
     record_anomaly,
     record_auto_resolution,
+    record_policy_decision,
     record_processing_duration,
     record_reading,
     record_retrieval,
+    current_trace_id,
     span,
 )
 
@@ -111,6 +113,7 @@ class RuntimeStore:
             "healthy_reading_count": workflow.get("healthy_reading_count", 0),
             "healthy_readings_required": HEALTHY_READINGS_TO_RESOLVE,
             "automatically_resolved": incident.state is IncidentState.RESOLVED and "agent_recovery_confirmed" in incident.reason_codes,
+            "trace_id": incident.trace_id,
         }
 
     def incident_snapshots(self) -> list[dict[str, Any]]:
@@ -299,6 +302,8 @@ class StreamRuntime:
                 sensor_span.add_event("anomaly.detected", {"detector.name": event.detector, "anomaly.severity": event.severity})
                 await self.store.record_detector_event(event)
                 incident = self.aggregator.aggregate(event)
+                if incident.trace_id is None:
+                    incident.trace_id = current_trace_id()
                 record_anomaly(detector=event.detector, severity=event.severity, category=incident.category.value)
                 telemetry_event(
                     "incident.detected",
@@ -327,6 +332,10 @@ class StreamRuntime:
                         policy_span.set_attribute("policy.decision", result.decision.value)
                         policy_span.set_attribute("policy.confidence", result.confidence)
                     self.aggregator.apply_decision(incident, result)
+                    record_policy_decision(
+                        decision=result.decision.value,
+                        incident_category=incident.category.value,
+                    )
                     incident_span.set_attribute("policy.decision", result.decision.value)
                     if incident.category is IncidentCategory.EQUIPMENT_CONDITION:
                         self._activate_agent(incident)
@@ -431,6 +440,10 @@ class StreamRuntime:
                 policy_span.set_attribute("policy.decision", result.decision.value)
                 policy_span.set_attribute("policy.confidence", result.confidence)
             self.aggregator.apply_decision(incident, result)
+            record_policy_decision(
+                decision=result.decision.value,
+                incident_category=incident.category.value,
+            )
             assessment = self.agent.assess(
                 incident, event.reading, evidence,
                 int(self.store.workflows[incident.incident_id]["healthy_reading_count"]),
@@ -515,6 +528,10 @@ class StreamRuntime:
                 continue
             result = self.policy.evaluate(incident)
             self.aggregator.apply_decision(incident, result)
+            record_policy_decision(
+                decision=result.decision.value,
+                incident_category=incident.category.value,
+            )
             if self.database:
                 self.database.save_incident(incident)
             await self.store.record_incident(incident)

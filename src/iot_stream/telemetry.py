@@ -23,6 +23,7 @@ class TelemetryInstruments:
         meter = metrics.get_meter("iot_stream")
         self.readings = meter.create_counter("iot.readings", unit="1", description="Validated telemetry readings processed")
         self.anomalies = meter.create_counter("iot.anomalies", unit="1", description="Detector events by detector and severity")
+        self.policy_decisions = meter.create_counter("policy.decisions", unit="1", description="Runtime safety-policy decisions by decision and incident category")
         self.retrievals = meter.create_counter("knowledge.retrievals", unit="1", description="Knowledge retrieval attempts by outcome")
         self.assessments = meter.create_counter("agent.assessments", unit="1", description="Agent assessments by provenance and outcome")
         self.auto_resolutions = meter.create_counter("agent.auto_resolutions", unit="1", description="Incidents automatically resolved after healthy telemetry")
@@ -99,6 +100,12 @@ def health_status() -> dict[str, str]:
     return {"state": "standby", "detail": "Set OTEL_EXPORTER_OTLP_ENDPOINT to export to SigNoz"}
 
 
+def current_trace_id() -> str | None:
+    """Return the active W3C trace ID only when an SDK span is recording."""
+    context = trace.get_current_span().get_span_context()
+    return f"{context.trace_id:032x}" if context.is_valid else None
+
+
 def _metrics() -> TelemetryInstruments | None:
     return _instruments
 
@@ -117,6 +124,14 @@ def record_reading(*, equipment_type: str, sensor_type: str) -> None:
 def record_anomaly(*, detector: str, severity: str, category: str) -> None:
     if instruments := _metrics():
         instruments.anomalies.add(1, {"detector.name": detector, "anomaly.severity": severity, "incident.category": category})
+
+
+def record_policy_decision(*, decision: str, incident_category: str) -> None:
+    if instruments := _metrics():
+        instruments.policy_decisions.add(1, {
+            "policy.decision": decision,
+            "incident.category": incident_category,
+        })
 
 
 def record_retrieval(*, equipment_type: str, matched: bool) -> None:

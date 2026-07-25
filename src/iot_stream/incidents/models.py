@@ -40,4 +40,5 @@ class Incident:
     retrieval_top_distance: float | None = None
     retrieval_second_distance: float | None = None
     last_notified_at: float | None = None
+    trace_id: str | None = None
     _reading_ids: set[str] = field(default_factory=set, repr=False)
