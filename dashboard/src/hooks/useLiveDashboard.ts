@@ -36,7 +36,7 @@ export function useLiveDashboard() {
     setActivity((current) => [
       { event, recorded_at: Date.now() / 1000, data },
       ...current,
-    ].slice(0, 120))
+    ].slice(0, 50))
   }, [])
 
   const queueSensor = useCallback((sensor: SensorUpdate) => {
@@ -141,5 +141,10 @@ export function useLiveDashboard() {
     setIncidents((current) => upsertById(current, updated, 'incident_id'))
   }, [])
 
-  return { sensors, incidents, activity, policy, streamStatus, streamError, loading, fleetSize, updatePolicy, acknowledge, resolve }
+  const review = useCallback(async (incidentId: string, outcome: 'confirmed_fault' | 'false_alarm' | 'different_cause', notes: string) => {
+    const updated = await api.review(incidentId, outcome, notes)
+    setIncidents((current) => upsertById(current, updated, 'incident_id'))
+  }, [])
+
+  return { sensors, incidents, activity, policy, streamStatus, streamError, loading, fleetSize, updatePolicy, acknowledge, resolve, review }
 }

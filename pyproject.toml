@@ -5,7 +5,10 @@ description = "Confidence-aware anomaly detection for live industrial IoT stream
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "chromadb>=1.0,<2.0",
     "fastapi",
+    "httpx",
+    "opentelemetry-api>=1.0,<2.0",
     "uvicorn[standard]",
 ]
 

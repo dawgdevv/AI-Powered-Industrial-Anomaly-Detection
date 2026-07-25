@@ -1,5 +1,7 @@
 """Request models for the runtime-only operator API."""
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
@@ -21,3 +23,18 @@ class PolicyConfig(BaseModel):
         if self.monitor_threshold > self.recommend_threshold:
             raise ValueError("monitor threshold cannot exceed recommendation threshold")
         return self
+
+
+class KnowledgeSearchRequest(BaseModel):
+    """Validated, filter-first request to the incident knowledge base."""
+
+    text: str = Field(min_length=3, max_length=4000)
+    equipment_type: str = Field(min_length=1, max_length=120)
+    sensor_type: str = Field(min_length=1, max_length=120)
+    incident_category: str = Field(min_length=1, max_length=120)
+    limit: int = Field(default=3, ge=1, le=10)
+
+
+class ReviewRequest(BaseModel):
+    outcome: Literal["confirmed_fault", "false_alarm", "different_cause"]
+    notes: str = Field(min_length=3, max_length=2000)

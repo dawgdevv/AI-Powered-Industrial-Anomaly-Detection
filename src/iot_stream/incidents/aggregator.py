@@ -41,6 +41,12 @@ class IncidentAggregator:
         self._active: dict[tuple[str, IncidentCategory], Incident] = {}
         self._counter = 0
 
+    def restore(self, incidents: list[Incident]) -> None:
+        for incident in incidents:
+            self._counter = max(self._counter, int(incident.incident_id.rsplit("-", 1)[-1]))
+            if incident.state is not IncidentState.RESOLVED:
+                self._active[(incident.device_id, incident.category)] = incident
+
     def aggregate(self, event: AnomalyEvent) -> Incident:
         category = category_for_detector(event.detector)
         key = (event.device_id, category)

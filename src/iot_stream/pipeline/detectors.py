@@ -208,3 +208,18 @@ class DeviceDetectorSet:
             events.append(dropout_event)
 
         return events
+
+    def restore_baseline(
+        self,
+        values: list[float],
+        last_sequence: int | None,
+        last_timestamp: float | None,
+    ) -> None:
+        """Restore enough state to avoid a cold detector baseline after restart."""
+        self.spike.history.extend(values[-SPIKE_WINDOW:])
+        self.drift.history.extend(values[-DRIFT_WINDOW:])
+        self.quality._last_sequence = last_sequence
+        self.quality._last_timestamp = last_timestamp
+
+    def baseline_values(self) -> list[float]:
+        return list(self.drift.history)

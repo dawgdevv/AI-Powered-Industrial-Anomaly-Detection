@@ -5,9 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 from math import isfinite
-from typing import Mapping
+from typing import Mapping, Sequence
 
 from iot_stream.incidents.models import Incident, IncidentCategory
+from iot_stream.knowledge.models import RetrievalMatch
 
 
 class Decision(StrEnum):
@@ -53,11 +54,13 @@ class DecisionPolicy:
         self.data_quality_min_readings = max(1, data_quality_min_readings)
         self._validate_configuration()
 
-    def evaluate(self, incident: Incident) -> DecisionResult:
+    def evaluate(
+        self, incident: Incident, matches: Sequence[RetrievalMatch] | None = None
+    ) -> DecisionResult:
         try:
             if incident.category is IncidentCategory.DATA_QUALITY:
                 return self._evaluate_data_quality(incident)
-            return self._evaluate_equipment(incident)
+            return self._evaluate_equipment(incident, matches)
         except Exception:
             return DecisionResult(
                 decision=Decision.ESCALATE,
@@ -65,7 +68,9 @@ class DecisionPolicy:
                 reason_codes=("policy_failure_safe_escalation",),
             )
 
-    def _evaluate_equipment(self, incident: Incident) -> DecisionResult:
+    def _evaluate_equipment(
+        self, incident: Incident, matches: Sequence[RetrievalMatch] | None
+    ) -> DecisionResult:
         total_weight = sum(self.detector_weights.values())
         evidence_weight = sum(
             self.detector_weights.get(detector, 0.0)
@@ -91,7 +96,27 @@ class DecisionPolicy:
                 confidence,
                 ("partial_detector_agreement",),
             )
-        return self._recommend(confidence)
+        recommendation = self._recommend(confidence)
+        if matches is None:
+            return recommendation
+        if not matches:
+            return DecisionResult(
+                Decision.ESCALATE,
+                confidence,
+                ("no_matching_precedent", "human_review_required"),
+            )
+        if not matches[0].verified:
+            return DecisionResult(
+                Decision.ESCALATE,
+                confidence,
+                ("unverified_precedent", "human_review_required"),
+            )
+        return DecisionResult(
+            recommendation.decision,
+            recommendation.confidence,
+            (*recommendation.reason_codes, "verified_retrieval_precedent"),
+            recommendation.recommendation_threshold,
+        )
 
     def _evaluate_data_quality(self, incident: Incident) -> DecisionResult:
         confidence = min(

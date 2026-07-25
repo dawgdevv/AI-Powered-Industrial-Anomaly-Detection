@@ -4,19 +4,24 @@ from __future__ import annotations
 
 import asyncio
 import time
+import os
+from pathlib import Path
 from collections import deque
 from contextlib import suppress
 from typing import Any
 
-from iot_stream.api.models import PolicyConfig
+from iot_stream.api.models import PolicyConfig, ReviewRequest
 from iot_stream.incidents import DecisionPolicy, Incident, IncidentAggregator
 from iot_stream.incidents.models import IncidentCategory, IncidentState
 from iot_stream.ingestion.tcp_client import stream_readings
 from iot_stream.pipeline.detectors import DeviceDetectorSet
 from iot_stream.schemas import AnomalyEvent, SensorReading
+from iot_stream.knowledge import RetrievalQuery, build_incident_retriever
+from iot_stream.persistence import RuntimeDatabase
 
 
 CONFIGURED_FLEET_SIZE = 6
+_DEFAULT_DATABASE = object()
 
 
 class RuntimeStore:
@@ -35,6 +40,8 @@ class RuntimeStore:
         self.incidents: dict[str, Incident] = {}
         self.acknowledged: set[str] = set()
         self.manually_resolved: set[str] = set()
+        self.retrieval_evidence: dict[str, list[dict[str, object]]] = {}
+        self.reviews: dict[str, dict[str, object]] = {}
         self.policy_config = PolicyConfig()
         self.stream_status = "connecting"
         self.stream_error: str | None = None
@@ -82,6 +89,11 @@ class RuntimeStore:
             "confidence": incident.confidence,
             "decision": incident.decision,
             "reason_codes": incident.reason_codes,
+            "retrieved_incident_ids": incident.retrieved_incident_ids,
+            "retrieval_top_distance": incident.retrieval_top_distance,
+            "retrieval_second_distance": incident.retrieval_second_distance,
+            "retrieval_evidence": self.retrieval_evidence.get(incident.incident_id, []),
+            "review": self.reviews.get(incident.incident_id),
             "acknowledged": incident.incident_id in self.acknowledged,
             "manually_resolved": incident.incident_id in self.manually_resolved,
         }
@@ -199,13 +211,28 @@ class RuntimeStore:
 
 
 class StreamRuntime:
-    def __init__(self, host: str = "127.0.0.1", port: int = 9999):
+    def __init__(self, host: str = "127.0.0.1", port: int = 9999, database: RuntimeDatabase | None | object = _DEFAULT_DATABASE, retriever=None):
         self.host = host
         self.port = port
         self.store = RuntimeStore()
         self.detector_sets: dict[str, DeviceDetectorSet] = {}
         self.aggregator = IncidentAggregator()
         self.policy = self._build_policy(self.store.policy_config)
+        if database is _DEFAULT_DATABASE:
+            self.database = RuntimeDatabase(Path(os.getenv("RUNTIME_DB_PATH", "data/runtime.sqlite3")))
+        else:
+            self.database = database
+        if self.database and (saved_policy := self.database.load_policy()):
+            self.store.policy_config = PolicyConfig.model_validate(saved_policy)
+            self.policy = self._build_policy(self.store.policy_config)
+        self.retriever = retriever
+        self._retriever_attempted = retriever is not None
+        restored = self.database.load_incidents() if self.database else []
+        self.store.incidents = {incident.incident_id: incident for incident in restored}
+        if self.database:
+            self.store.retrieval_evidence = self.database.load_retrieval_evidence()
+            self.store.reviews = self.database.load_reviews()
+        self.aggregator.restore(restored)
 
     async def run(self) -> None:
         await self.store.set_stream_status("connecting")
@@ -220,29 +247,73 @@ class StreamRuntime:
             self.detector_sets[reading.device_id] = DeviceDetectorSet(
                 max_staleness_seconds=30.0
             )
+            baseline = self.database.load_baseline(reading.device_id) if self.database else None
+            if baseline is not None:
+                self.detector_sets[reading.device_id].restore_baseline(*baseline)
         detectors = self.detector_sets[reading.device_id]
 
         for resolved in self.aggregator.resolve_quiet(
             reading.device_id, reading.timestamp
         ):
+            if self.database:
+                self.database.save_incident(resolved)
             await self.store.record_incident(resolved, "incident.resolved")
 
-        for event in detectors.check(reading):
+        events = detectors.check(reading)
+        if self.database:
+            self.database.save_baseline(
+                reading.device_id, detectors.baseline_values(), reading.sequence_number, reading.timestamp
+            )
+        for event in events:
             await self.store.record_detector_event(event)
             incident = self.aggregator.aggregate(event)
-            result = self.policy.evaluate(incident)
+            matches = self._retrieve(event) if incident.category is IncidentCategory.EQUIPMENT_CONDITION else None
+            if matches is not None:
+                incident.retrieved_incident_ids = [match.incident_id for match in matches]
+                incident.retrieval_top_distance = matches[0].distance if matches else None
+                incident.retrieval_second_distance = matches[1].distance if len(matches) > 1 else None
+                evidence = [{"incident_id": match.incident_id, "distance": match.distance, "verified": match.metadata.get("verified"), "source_url": match.metadata.get("source_url"), "summary": match.retrieval_text} for match in matches]
+                self.store.retrieval_evidence[incident.incident_id] = evidence
+                if self.database:
+                    self.database.save_retrieval_evidence(incident.incident_id, evidence)
+            result = self.policy.evaluate(incident, matches)
             self.aggregator.apply_decision(incident, result)
+            if self.database:
+                self.database.save_incident(incident)
             await self.store.record_incident(incident)
+
+    def _retrieve(self, event: AnomalyEvent):
+        if self.retriever is None and not self._retriever_attempted:
+            self._retriever_attempted = True
+            try:
+                self.retriever = build_incident_retriever()
+            except Exception:
+                return []
+        if self.retriever is None:
+            return []
+        try:
+            return self.retriever.search(RetrievalQuery(
+                text=f"{event.detector}: {event.description}",
+                equipment_type=event.reading.equipment_type,
+                sensor_type=event.reading.sensor_type,
+                incident_category=IncidentCategory.EQUIPMENT_CONDITION.value,
+            ))
+        except Exception:
+            return []
 
     async def update_policy(self, config: PolicyConfig) -> dict[str, Any]:
         policy = self._build_policy(config)
         self.policy = policy
         self.store.policy_config = config
+        if self.database:
+            self.database.save_policy(config.model_dump())
         for incident in self.store.incidents.values():
             if incident.state is IncidentState.RESOLVED:
                 continue
             result = self.policy.evaluate(incident)
             self.aggregator.apply_decision(incident, result)
+            if self.database:
+                self.database.save_incident(incident)
             await self.store.record_incident(incident)
         payload = config.model_dump()
         self.store.add_activity("policy.updated", payload)
@@ -254,6 +325,8 @@ class StreamRuntime:
         if incident is None:
             return None
         self.store.acknowledged.add(incident_id)
+        if self.database:
+            self.database.save_incident(incident)
         await self.store.record_incident(incident)
         return self.store.incident_snapshot(incident)
 
@@ -265,7 +338,20 @@ class StreamRuntime:
         if "operator_resolved" not in incident.reason_codes:
             incident.reason_codes.append("operator_resolved")
         self.store.manually_resolved.add(incident_id)
+        if self.database:
+            self.database.save_incident(incident)
         await self.store.record_incident(incident, "incident.resolved")
+        return self.store.incident_snapshot(incident)
+
+    async def review(self, incident_id: str, request: ReviewRequest) -> dict[str, Any] | None:
+        incident = self.store.incidents.get(incident_id)
+        if incident is None:
+            return None
+        review = {"outcome": request.outcome, "notes": request.notes, "reviewed_at": time.time()}
+        self.store.reviews[incident_id] = review
+        if self.database:
+            self.database.save_review(incident_id, request.outcome, request.notes, review["reviewed_at"])
+        await self.store.record_incident(incident, "incident.reviewed")
         return self.store.incident_snapshot(incident)
 
     @staticmethod

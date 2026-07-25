@@ -13,9 +13,10 @@ from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from iot_stream.api.models import PolicyConfig
+from iot_stream.api.models import KnowledgeSearchRequest, PolicyConfig, ReviewRequest
 from iot_stream.api.runtime import CONFIGURED_FLEET_SIZE, StreamRuntime
 from iot_stream.incidents.models import IncidentCategory, IncidentState
+from iot_stream.knowledge import RetrievalQuery, build_incident_retriever, build_knowledge_store
 
 
 def create_app(
@@ -65,6 +66,48 @@ def create_app(
             "configured_fleet_size": CONFIGURED_FLEET_SIZE,
             "incident_count": len(store.incidents),
         }
+
+    @app.get("/api/knowledge/health")
+    async def knowledge_health() -> dict:
+        try:
+            store = build_knowledge_store()
+            count = store.count()
+        except Exception as error:
+            raise HTTPException(
+                status_code=503, detail=f"knowledge store unavailable: {error}"
+            ) from error
+        return {
+            "status": "ready" if count else "empty",
+            "collection": "industrial_incidents",
+            "document_count": count,
+            "persist_path": os.getenv("CHROMA_PERSIST_PATH", "data/chroma"),
+        }
+
+    @app.post("/api/knowledge/search")
+    async def search_knowledge(request_body: KnowledgeSearchRequest) -> list[dict]:
+        try:
+            matches = build_incident_retriever().search(
+                RetrievalQuery(
+                    text=request_body.text,
+                    equipment_type=request_body.equipment_type,
+                    sensor_type=request_body.sensor_type,
+                    incident_category=request_body.incident_category,
+                    limit=request_body.limit,
+                )
+            )
+        except Exception as error:
+            raise HTTPException(
+                status_code=503, detail=f"knowledge retrieval unavailable: {error}"
+            ) from error
+        return [
+            {
+                "incident_id": match.incident_id,
+                "retrieval_text": match.retrieval_text,
+                "metadata": match.metadata,
+                "distance": match.distance,
+            }
+            for match in matches
+        ]
 
     @app.get("/api/sensors")
     async def sensors() -> list[dict]:
@@ -119,6 +162,13 @@ def create_app(
     @app.post("/api/incidents/{incident_id}/resolve")
     async def resolve(incident_id: str) -> dict:
         snapshot = await live_runtime.resolve(incident_id)
+        if snapshot is None:
+            raise HTTPException(status_code=404, detail="incident not found")
+        return snapshot
+
+    @app.post("/api/incidents/{incident_id}/review")
+    async def review(incident_id: str, request_body: ReviewRequest) -> dict:
+        snapshot = await live_runtime.review(incident_id, request_body)
         if snapshot is None:
             raise HTTPException(status_code=404, detail="incident not found")
         return snapshot

@@ -28,4 +28,5 @@ export const api = {
   }),
   acknowledge: (incidentId: string) => request<Incident>(`/api/incidents/${incidentId}/acknowledge`, { method: 'POST' }),
   resolve: (incidentId: string) => request<Incident>(`/api/incidents/${incidentId}/resolve`, { method: 'POST' }),
+  review: (incidentId: string, outcome: 'confirmed_fault' | 'false_alarm' | 'different_cause', notes: string) => request<Incident>(`/api/incidents/${incidentId}/review`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ outcome, notes }) }),
 }

@@ -1,0 +1,9 @@
+# Copy to litellm-config.yaml; LiteLLM reads MISTRAL_API_KEY from its process env.
+model_list:
+  - model_name: mistral-embed
+    litellm_params:
+      model: mistral/mistral-embed
+      api_key: os.environ/MISTRAL_API_KEY
+
+litellm_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY

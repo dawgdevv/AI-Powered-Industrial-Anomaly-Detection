@@ -37,6 +37,11 @@ export type Incident = {
   reason_codes: string[]
   acknowledged: boolean
   manually_resolved: boolean
+  retrieved_incident_ids?: string[]
+  retrieval_top_distance?: number | null
+  retrieval_second_distance?: number | null
+  retrieval_evidence?: Array<{ incident_id: string; distance: number | null; verified: boolean; source_url: string; summary: string }>
+  review?: { outcome: 'confirmed_fault' | 'false_alarm' | 'different_cause'; notes: string; reviewed_at: number } | null
 }
 
 export type PolicyConfig = {

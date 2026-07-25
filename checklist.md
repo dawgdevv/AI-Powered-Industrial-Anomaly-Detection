@@ -56,13 +56,13 @@ This checklist turns the project goals in [context.md](context.md), [PROBLEM.md]
 
 ## Knowledge Base, Retrieval, and AI Explanation
 
-- [ ] Create 20–30 structured historical incidents.
-- [ ] Include verified bearing wear, shaft misalignment, overheating, sensor/gateway failure, and unrelated records.
-- [ ] Persist the knowledge base in a vector store.
-- [ ] Filter retrieval by equipment type, sensor type, and incident category.
-- [ ] Return the top three precedents with scores and structured metadata.
-- [ ] Handle empty retrieval results safely.
-- [ ] Persist selected precedent IDs with the final decision.
+- [x] Create 20 structured, source-backed historical and data-quality records.
+- [x] Include bearing wear, misalignment, high-temperature, communication-quality, and varied equipment cases.
+- [x] Implement a persistent local Chroma store and source-corpus indexer (requires LiteLLM/Mistral credentials to build the production index).
+- [x] Filter retrieval by equipment type, sensor type, and incident category.
+- [x] Return the top three precedents with raw Chroma distance and structured metadata.
+- [x] Handle empty retrieval results safely.
+- [x] Persist selected precedent IDs with the final decision.
 - [ ] Add a bounded LLM explanation layer with structured output.
 - [ ] Prevent the LLM from overriding the decision policy.
 - [ ] Escalate safely on model/provider failures.
@@ -107,4 +107,4 @@ This checklist turns the project goals in [context.md](context.md), [PROBLEM.md]
 
 ## Next Milestone
 
-The highest-value next slice is: **incident knowledge retrieval → confidence/abstention policy integration → OpenTelemetry trace**. The deterministic two-mode fleet now provides the live fault stream for that work.
+The highest-value next slice is: **bounded LLM explanation → end-to-end OpenTelemetry trace → SigNoz dashboards**. Retrieval-aware policy and restart-safe state are now in place.

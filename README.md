@@ -211,7 +211,7 @@ The currently implemented routes are listed in [Current runnable system](#curren
 
 ## Current runnable system
 
-The repository already contains the complete streaming, detection, incident, API, and live-dashboard foundation. RAG, LLM explanations, full review persistence, and SigNoz are the remaining product layers.
+The repository contains streaming, detection, incidents, a source-backed Chroma knowledge base, retrieval-aware policy, optional restart-safe SQLite state, API, and a live dashboard. Bounded LLM explanations, full review persistence, and SigNoz are the remaining product layers.
 
 ### Requirements
 
@@ -239,6 +239,7 @@ uv run main.py produce --mode faulty --seed 42 --interval 0.1
 
 ```bash
 # Terminal 2 — ingestion, detection, incidents, REST API, and SSE
+# Set RUNTIME_DB_PATH=data/runtime.sqlite3 to retain baselines and incidents across restarts.
 uv run uvicorn --app-dir src iot_stream.api.main:app --reload
 ```
 
@@ -277,7 +278,7 @@ uv run main.py consume --json
 | `POST` | `/api/incidents/{incident_id}/resolve` | Resolve an incident manually |
 | `GET` | `/api/stream` | Server-Sent Events for live dashboard updates |
 
-Current readings, bounded trends, incidents, activity, and policy settings are in memory and reset when the API restarts.
+Current readings, bounded trends, activity, and policy settings are in memory. Set `RUNTIME_DB_PATH=data/runtime.sqlite3` to retain detector baselines, incidents, final decisions, and selected precedent IDs across API restarts.
 
 ## Current progress
 
@@ -293,14 +294,15 @@ Last reconciled with the repository on **2026-07-22**.
 | Incident aggregation, lifecycle, confidence, and detector-agreement policy | Complete |
 | FastAPI snapshots, policy operations, incident actions, and SSE | Complete |
 | Live six-asset dashboard with runtime policy controls | Complete |
-| Structured historical incident knowledge base | Next milestone |
-| Filtered retrieval and retrieval-aware confidence | Next milestone |
+| Structured historical incident knowledge base | Complete |
+| Filtered retrieval, safe escalation, and retrieval-aware policy | Complete |
+| Optional SQLite persistence for baselines and incident evidence | Complete |
 | Bounded LLM explanation and explicit abstention workflow | Planned |
 | Persistent human-review outcomes | Planned |
 | OpenTelemetry instrumentation and SigNoz experience | Planned |
 | Docker/Foundry packaging and clean-clone demo | Planned |
 
-The latest verified baseline is **37 passing Python tests**, a successful dashboard lint and production build, and a real TCP smoke run that delivered readings for all six assets.
+The latest verified baseline is **42 passing Python tests**, a successful dashboard lint and production build, and a real TCP smoke run that delivered readings for all six assets.
 
 ## Project structure
 

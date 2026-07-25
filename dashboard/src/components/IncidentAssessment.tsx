@@ -1,49 +1,23 @@
 import { useState } from 'react'
 import type { Incident } from '../types/dashboard'
 
-type Props = {
-  incident?: Incident
-  onAcknowledge: (id: string) => Promise<void>
-  onResolve: (id: string) => Promise<void>
+type Outcome = 'confirmed_fault' | 'false_alarm' | 'different_cause'
+type Props = { incident?: Incident; onAcknowledge: (id: string) => Promise<void>; onResolve: (id: string) => Promise<void>; onReview: (id: string, outcome: Outcome, notes: string) => Promise<void> }
+
+function plainLanguage(incident: Incident) {
+  if (incident.category === 'DATA_QUALITY') return { title: 'The sensor data needs attention', detail: 'This is a data delivery issue, not a confirmed equipment fault.', action: 'Inspect the sensor, gateway, or network connection.' }
+  if (incident.decision === 'RECOMMEND') return { title: 'This asset needs a planned inspection', detail: 'Its behaviour differs from the normal operating pattern and matches a verified historical case.', action: 'Schedule a maintenance inspection at the next safe opportunity.' }
+  return { title: 'An engineer needs to review this asset', detail: 'The system found an unusual pattern but does not have enough verified evidence to recommend a specific repair.', action: 'Keep monitoring and ask maintenance to assess the equipment.' }
 }
 
-const decisionLabels = {
-  RECOMMEND: 'Maintenance recommended',
-  ESCALATE: 'Human review required',
-  MONITOR: 'Continue monitoring',
-  DATA_QUALITY_ALERT: 'Inspect data path',
-}
-
-export function IncidentAssessment({ incident, onAcknowledge, onResolve }: Props) {
-  const [pending, setPending] = useState<'acknowledge' | 'resolve' | null>(null)
-
-  if (!incident) {
-    return <aside className="assessment-panel empty-assessment">
-      <div className="panel-title"><div><p className="eyebrow">INCIDENT ASSESSMENT</p><h2>No active incident</h2></div><span className="agent-badge">Policy controlled</span></div>
-      <p>Detector evidence and confidence decisions will appear here when the selected sensor crosses an anomaly rule.</p>
-    </aside>
-  }
-
-  const act = async (action: 'acknowledge' | 'resolve') => {
-    setPending(action)
-    try {
-      await (action === 'acknowledge' ? onAcknowledge(incident.incident_id) : onResolve(incident.incident_id))
-    } finally {
-      setPending(null)
-    }
-  }
-  const confidence = Math.round(incident.confidence * 100)
-  const decision = incident.decision ? decisionLabels[incident.decision] : 'Awaiting evidence'
-
-  return <aside className="assessment-panel">
-    <div className="panel-title"><div><p className="eyebrow">INCIDENT ASSESSMENT</p><h2>{incident.incident_id}</h2></div><span className={`incident-state ${incident.state.toLowerCase()}`}>{incident.state}</span></div>
-    <div className="assessment-body">
-      <div className="confidence"><div className="confidence-ring" style={{ '--confidence': `${confidence * 3.6}deg` } as React.CSSProperties}><strong>{confidence}</strong><span>%</span></div><div><span>POLICY CONFIDENCE</span><strong>{decision}</strong><p>{incident.affected_reading_count} affected readings</p></div></div>
-      <div className="diagnosis"><span>CATEGORY</span><h3>{incident.category.replaceAll('_', ' ')}</h3><p>Evidence from {incident.detectors.length ? incident.detectors.join(', ') : 'no active detectors'}.</p></div>
-      <div className="evidence-list"><span>REASON CODES</span>{incident.reason_codes.map((reason) => <code key={reason}>{reason}</code>)}</div>
-      <div className="incident-facts"><span>Peak <b>{incident.peak_observed_value?.toFixed(3) ?? '—'}</b></span><span>Severity <b>{incident.peak_severity}</b></span></div>
-      <button className={`review-button ${incident.acknowledged ? 'requested' : ''}`} disabled={incident.acknowledged || pending !== null} onClick={() => act('acknowledge')}>{incident.acknowledged ? '✓ Acknowledged' : pending === 'acknowledge' ? 'Acknowledging…' : 'Acknowledge incident'}</button>
-      <button className="dismiss-button" disabled={incident.state === 'RESOLVED' || pending !== null} onClick={() => act('resolve')}>{incident.state === 'RESOLVED' ? 'Resolved' : pending === 'resolve' ? 'Resolving…' : 'Resolve incident'}</button>
-    </div>
-  </aside>
+export function IncidentAssessment({ incident, onAcknowledge, onResolve, onReview }: Props) {
+  const [pending, setPending] = useState<string | null>(null)
+  const [outcome, setOutcome] = useState<Outcome>('confirmed_fault')
+  const [notes, setNotes] = useState('')
+  if (!incident) return <aside className="assessment-panel empty-assessment"><div className="panel-title"><div><p className="eyebrow">ASSESSMENT</p><h2>No action needed</h2></div></div><p>When a sensor pattern needs attention, this panel will explain what happened, what to do, and the evidence behind it.</p></aside>
+  const copy = plainLanguage(incident)
+  const precedent = incident.retrieval_evidence?.[0]
+  const act = async (name: 'acknowledge' | 'resolve') => { setPending(name); try { await (name === 'acknowledge' ? onAcknowledge(incident.incident_id) : onResolve(incident.incident_id)) } finally { setPending(null) } }
+  const submitReview = async () => { if (notes.trim().length < 3) return; setPending('review'); try { await onReview(incident.incident_id, outcome, notes.trim()) } finally { setPending(null) } }
+  return <aside className="assessment-panel assessment-explained"><div className="panel-title"><div><p className="eyebrow">INCIDENT ASSESSMENT</p><h2>{incident.incident_id}</h2></div><span className={`incident-state ${incident.state.toLowerCase()}`}>{incident.state}</span></div><section className="assessment-answer"><span>WHAT IS HAPPENING</span><h3>{copy.title}</h3><p>{copy.detail}</p></section><section className="assessment-action"><span>WHAT TO DO NOW</span><p>{copy.action}</p></section><section className="assessment-why"><span>WHY THE SYSTEM FLAGGED IT</span><p><b>{incident.affected_reading_count}</b> unusual readings · detectors: <b>{incident.detectors.join(' and ') || 'monitoring rule'}</b> · highest observed value: <b>{incident.peak_observed_value?.toFixed(2) ?? '—'}</b></p></section><section className="knowledge-evidence"><span>KNOWLEDGE BASE EVIDENCE</span>{precedent ? <><b>Verified similar case: {precedent.incident_id}</b><p>{precedent.summary}</p><small>Similarity distance {precedent.distance?.toFixed(3) ?? '—'} · <a href={precedent.source_url} target="_blank" rel="noreferrer">View original source</a></small></> : <p>No verified similar case was found. The system is deliberately escalating rather than guessing.</p>}</section><div className="assessment-actions"><button className={`review-button ${incident.acknowledged ? 'requested' : ''}`} disabled={incident.acknowledged || pending !== null} onClick={() => act('acknowledge')}>{incident.acknowledged ? 'Acknowledged' : 'Acknowledge'}</button><button className="dismiss-button" disabled={incident.state === 'RESOLVED' || pending !== null} onClick={() => act('resolve')}>{incident.state === 'RESOLVED' ? 'Resolved' : 'Resolve'}</button></div><section className="operator-review"><span>HELP IMPROVE FUTURE ASSESSMENTS</span>{incident.review ? <p><b>{incident.review.outcome.replaceAll('_', ' ')}</b> — {incident.review.notes}</p> : <><select value={outcome} onChange={(event) => setOutcome(event.target.value as Outcome)}><option value="confirmed_fault">Confirmed fault</option><option value="false_alarm">False alarm</option><option value="different_cause">Different cause</option></select><textarea value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="What did maintenance find?" /><button className="review-button" disabled={pending !== null || notes.trim().length < 3} onClick={submitReview}>{pending === 'review' ? 'Saving…' : 'Save review outcome'}</button><small>Saved for review and later curation. It never changes the knowledge base automatically.</small></>}</section></aside>
 }

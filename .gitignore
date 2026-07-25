@@ -8,3 +8,7 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Local runtime state
+data/*.sqlite3
+.env

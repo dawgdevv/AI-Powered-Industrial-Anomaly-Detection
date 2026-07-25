@@ -30,7 +30,7 @@ class RuntimeStoreTests(unittest.IsolatedAsyncioTestCase):
 
 class StreamRuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def test_policy_update_re_evaluates_open_incident(self):
-        runtime = StreamRuntime()
+        runtime = StreamRuntime(database=None)
         incident = runtime.aggregator.aggregate(anomaly("spike", 1))
         runtime.store.incidents[incident.incident_id] = incident
         updated = await runtime.update_policy(PolicyConfig(
@@ -43,7 +43,7 @@ class StreamRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(incident.decision, "RECOMMEND")
 
     async def test_acknowledge_and_resolve_are_runtime_actions(self):
-        runtime = StreamRuntime()
+        runtime = StreamRuntime(database=None)
         incident = runtime.aggregator.aggregate(anomaly("spike", 1))
         runtime.store.incidents[incident.incident_id] = incident
         acknowledged = await runtime.acknowledge(incident.incident_id)
@@ -55,7 +55,7 @@ class StreamRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
 class ApiRouteTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        self.runtime = StreamRuntime()
+        self.runtime = StreamRuntime(database=None)
         self.client = AsyncClient(
             transport=ASGITransport(app=create_app(self.runtime, start_worker=False)),
             base_url="http://test",
