@@ -8,59 +8,44 @@ Industrial IoT Anomaly Control is designed to turn that raw stream into a tracea
 
 ## Final product architecture
 
-```text
-Six-asset water-treatment simulator
-                │ TCP JSON Lines
-                ▼
-Validated ingestion and per-device state
-                │
-                ├── deterministic signal detectors
-                ├── statistical anomaly detection
-                └── transport and data-quality checks
-                │
-                ▼
-Incident aggregation and lifecycle
-                │
-                ▼
-Filtered historical-incident retrieval
-                │ top precedents + similarity + verification
-                ▼
-Application-owned confidence and abstention policy
-                │
-        ┌───────┴────────┐
-        ▼                ▼
-   RECOMMEND          ESCALATE
-        │                │
-        ▼                ▼
-Bounded AI         Human-review
-explanation           queue
-        └───────┬────────┘
-                ▼
-FastAPI + operator dashboard + OpenTelemetry/SigNoz
+```mermaid
+flowchart LR
+    Mock[Water-treatment mock<br/>six assets] -->|TCP JSON Lines| API[FastAPI stream runtime]
+    API --> Detect[Per-device detectors<br/>signal + transport quality]
+    Detect --> Incident[Incident lifecycle<br/>and safe policy]
+    Incident --> Immediate[Immediate safe assessment<br/>and SSE update]
+    Incident -. background enrichment .-> Retrieve[Chroma retrieval]
+    Retrieve <-->|embeddings| Gateway[LiteLLM gateway]
+    Retrieve --> Refine[Flow Warden<br/>Mistral or deterministic fallback]
+    Immediate --> Dashboard[Operator command center]
+    Refine --> Dashboard
+    API --> SQLite[(SQLite baselines<br/>policy and incident evidence)]
+    API --> OTel[OpenTelemetry]
+    OTel --> SigNoz[SigNoz traces<br/>metrics and logs]
 ```
 
-The LLM does not decide whether maintenance should be recommended. It explains a decision already approved by application policy and cannot override confidence thresholds, data-quality gates, or abstention rules.
+The LLM does not decide whether maintenance should be recommended. It refines an already-safe assessment after the detector-only incident is visible, and cannot override policy, data-quality gates, or recovery rules.
 
 ## What the finished system does
 
 1. Streams realistic telemetry from six named assets in a water-treatment plant.
 2. Validates event identity, sequence, timestamps, schema, and channel values at ingestion.
-3. Detects vibration spikes, gradual drift, dropouts, rate changes, multivariate anomalies, and transport-quality failures using independent per-device state.
+3. Detects vibration spikes, gradual drift, dropouts, and transport-quality failures using independent per-device state.
 4. Groups related detector evidence into one incident instead of flooding operators with repeated alarms.
 5. Retrieves only relevant historical incidents after filtering by equipment, sensor type, and incident category.
 6. Calculates confidence from anomaly strength, detector agreement, retrieval similarity and margin, precedent verification, persistence, and data quality.
-7. Recommends a bounded maintenance action when evidence passes policy, or creates a human-review escalation with explicit reason codes when it does not.
-8. Produces an operator-facing explanation that cites detector evidence and retrieved precedents without changing the policy decision.
-9. Traces the entire investigation through OpenTelemetry and SigNoz, including latency, retrieval, confidence, model usage, outcome, and operator action.
-10. Records review outcomes so verified resolutions can improve the historical incident knowledge base.
+7. Produces a safe detector-only assessment immediately, then enriches the same incident with a filtered Chroma match and optional bounded Mistral explanation.
+8. Automatically resolves an equipment software incident only after five consecutive healthy readings; data-quality incidents resolve after a quiet period.
+9. Traces the pipeline through OpenTelemetry and SigNoz, including detector activity, retrieval, agent latency, fallback provenance, and recovery time.
+10. Records operator findings so confirmed resolutions can improve local knowledge for future retrieval.
 
 ## Three safe outcome paths
 
 ### 1. Verified precedent → maintenance recommendation
 
-A pump begins developing a bearing-wear signature. The detectors identify persistent vibration drift and supporting spike evidence, and the incident service correlates those events into one equipment-condition investigation.
+A raw-water intake pump begins developing a bearing-misalignment signature. The detectors identify persistent vibration drift and supporting spike evidence, and the incident service correlates those events into one equipment-condition investigation.
 
-Retrieval finds a strong, verified historical match such as `INC-0092`. The similarity, match margin, detector agreement, data quality, and precedent status satisfy policy. The system recommends a bearing inspection within a bounded time window, cites the supporting incident, and generates a concise operator explanation.
+Retrieval finds the strong, verified `WT-INC-001` water-treatment precedent. The similarity, match margin, detector agreement, data quality, and precedent status satisfy policy. The system recommends a bounded inspection action, cites the supporting incident, and generates a concise operator explanation.
 
 ### 2. Weak or novel evidence → human escalation
 
@@ -132,41 +117,49 @@ assert not (decision == "RECOMMEND" and confidence < configured_threshold)
 
 The application enforces that invariant before an explanation or notification is dispatched.
 
-## Final operator experience
+## Operator command center
 
-The completed dashboard will provide:
+The live dashboard provides:
 
-- live state, readings, freshness, and bounded trends for all six plant assets;
-- detector evidence and incident lifecycle without storing every normal reading;
-- retrieved precedents, similarity scores, verification status, and cited resolutions;
-- confidence components, final policy decision, and abstention reason codes;
-- a bounded AI explanation and proposed maintenance action;
-- separate equipment-condition and data-quality workflows;
-- acknowledgement, human-review, override, resolution, and outcome capture;
-- runtime policy controls with validation and audit history;
-- a direct link from every investigation to its SigNoz trace.
+- a three-rail command center: fleet, selected evidence, and Flow Warden;
+- live readings, freshness, baseline comparison, detector state, and bounded trends;
+- a transparent Flow Warden trace: observation, detector evidence, knowledge match, assessment, and recovery watch;
+- a service rack for stream, detector, incident, Chroma, agent, policy, and SigNoz state;
+- a completed-workflow handoff for an operator to save the actual maintenance finding;
+- runtime policy controls persisted to SQLite;
+- an activity timeline for detector, incident, review, policy, and stream events.
+
+When the agent confirms recovery, the active scenario and retrieval evidence clear
+from Flow Warden so the next investigation starts cleanly. The completed record
+remains in activity/history and may still receive an operator report.
 
 Normal telemetry remains ephemeral. The final system persists only operationally meaningful records: incidents, evidence, selected precedents, decisions, explanations, traces, review actions, and confirmed outcomes.
 
 ## Observability and safety
 
-Every investigation produces an `investigate_sensor_anomaly` root trace with spans for:
+Every sensor reading produces a `sensor.process` trace. An anomalous reading
+adds detector and policy spans immediately; knowledge enrichment then runs in a
+background task so a slow embedding or model request cannot pause ingestion.
 
 ```text
-ingest → validate → update sensor state → detect → aggregate incident
-→ filter candidates → retrieve precedents → calculate confidence
-→ apply policy → invoke explanation model → recommend or escalate
-→ record operator outcome
+sensor.process
+├── detectors.evaluate
+├── incident.evaluate
+│   └── policy.evaluate                  detector-only safe decision
+├── knowledge.enrich_incident            background task
+│   ├── knowledge.retrieve
+│   └── policy.re_evaluate
+├── agent.explain                        Mistral or deterministic fallback
+└── agent.monitor_recovery               five healthy readings → resolved
 ```
 
-Trace attributes connect the sensor, equipment, incident, detector evidence, retrieval results, confidence, decision, abstention reason, model usage, and operator outcome.
+Trace attributes connect the equipment, incident, detectors, retrieval result,
+policy decision, agent provenance, and recovery state. Raw readings, prompts,
+Mistral keys, and operator notes are not emitted to telemetry.
 
-The final SigNoz experience includes:
-
-- an Industrial Operations dashboard for throughput, anomalies, open incidents, sensor silence, and data quality;
-- an Agent Decision Quality dashboard for recommendations, abstentions, confidence, retrieval strength, and human overrides;
-- an AI Pipeline Performance dashboard for end-to-end latency, retrieval and model latency, tokens, errors, and failed investigations;
-- alerts for sensor silence, duplicate bursts, repeated empty retrieval, model failures, high latency, unusual abstention rates, and any safety-policy violation.
+The included SigNoz runbook builds the **Water Treatment Agent — Trust &
+Recovery** dashboard: telemetry throughput, detector activity, knowledge
+grounding, agent latency, safe auto-resolutions, and incident recovery time.
 
 ## Final API and contracts
 
@@ -221,10 +214,12 @@ The faulty simulator and retrieval corpus are strictly aligned to six water-trea
 
 - [uv](https://docs.astral.sh/uv/) with project-managed Python 3.13+
 - [Bun](https://bun.sh/) for the React dashboard
+- A Mistral API key for embeddings and optional Flow Warden explanations
+- Docker and SigNoz Foundry only when running the optional observability stack
 
 Use `uv run` for Python commands so a matching global pyenv interpreter is not required.
 
-Install dependencies:
+Install project dependencies:
 
 ```bash
 uv sync --dev
@@ -233,22 +228,58 @@ bun install
 cd ..
 ```
 
-Start the current system in three terminals from the repository root:
+Create `.env` from the example and set `MISTRAL_API_KEY` and
+`LITELLM_MASTER_KEY`. The application uses the LiteLLM master key as its local
+gateway key; do not place the Mistral key in frontend code.
 
 ```bash
-# Terminal 1 — water-treatment telemetry and transient faults
+cp .env.example .env
+```
+
+### Full local demo
+
+Run these terminals in order from the repository root. The API keeps the live
+reading path responsive: Chroma retrieval and Mistral refinement occur after
+the initial safe incident has already reached the dashboard.
+
+```bash
+# One-time: install the local OpenAI-compatible LiteLLM proxy command.
+uv tool install 'litellm[proxy]'
+```
+
+```bash
+# Terminal 1 — LiteLLM routes embeddings and explanations to Mistral
+set -a
+source .env
+set +a
+litellm --config litellm-config.yaml --port 4000
+```
+
+```bash
+# Terminal 2 — build or refresh the local Chroma index after changing incidents.json
+set -a
+source .env
+set +a
+PYTHONPATH=src uv run python -m iot_stream.knowledge.indexer --reset
+```
+
+```bash
+# Terminal 3 — ingestion, detectors, incidents, Flow Warden, REST API, and SSE
+# For a clean demo run, choose a new runtime database path before starting.
+set -a
+source .env
+set +a
+RUNTIME_DB_PATH=data/demo-runtime.sqlite3 uv run uvicorn --app-dir src iot_stream.api.main:app --reload
+```
+
+```bash
+# Terminal 4 — continuous water-treatment telemetry and knowledge-backed faults
 cd iot-streaming-mock
 uv run main.py produce --mode faulty --seed 42 --interval 0.1
 ```
 
 ```bash
-# Terminal 2 — ingestion, detection, incidents, REST API, and SSE
-# Set RUNTIME_DB_PATH=data/runtime.sqlite3 to retain baselines and incidents across restarts.
-uv run uvicorn --app-dir src iot_stream.api.main:app --reload
-```
-
-```bash
-# Terminal 3 — live operator dashboard
+# Terminal 5 — live operator command center
 cd dashboard
 bun run dev
 ```
@@ -258,6 +289,16 @@ Open:
 - Dashboard: `http://localhost:5173`
 - API: `http://127.0.0.1:8000`
 - Interactive API documentation: `http://127.0.0.1:8000/docs`
+- SigNoz: `http://localhost:8080` (optional; see [SigNoz setup](docs/signoz.md))
+
+The seeded faulty demo opens the Flash Mixer incident at 10 seconds, then
+rotates one knowledge-backed equipment scenario every 60 seconds. Short
+duplicate, sequence-gap, and intermittent-reading conditions occur every 30
+seconds. The command center automatically follows the active equipment asset.
+
+For a different valid fault order each run, omit `--seed 42`. Leave the mock
+running: restarting it while reusing an old SQLite database intentionally
+creates `sequence_rewind` transport evidence because per-sensor sequences reset.
 
 Use `--mode normal` for a healthy plant stream. The optional raw consumer can observe the broadcast alongside the API:
 
@@ -270,7 +311,7 @@ uv run main.py consume --json
 
 | Method | Route | Purpose |
 | --- | --- | --- |
-| `GET` | `/api/health` | API, upstream stream, fleet, and incident status |
+| `GET` | `/api/health` | API, upstream stream, fleet, incident, and service-rack status |
 | `GET` | `/api/sensors` | Current fleet snapshots and bounded trends |
 | `GET` | `/api/sensors/{device_id}` | One live sensor snapshot |
 | `GET` | `/api/incidents` | Incidents filtered by optional state or category |
@@ -281,11 +322,11 @@ uv run main.py consume --json
 | `POST` | `/api/incidents/{incident_id}/review` | Save the maintenance finding and solution; confirmed reports enrich local knowledge |
 | `GET` | `/api/stream` | Server-Sent Events for live dashboard updates |
 
-Current readings, bounded trends, activity, and policy settings are in memory. Set `RUNTIME_DB_PATH=data/runtime.sqlite3` to retain detector baselines, incidents, final decisions, and selected precedent IDs across API restarts.
+Current readings and bounded trends are in memory. `RUNTIME_DB_PATH` persists detector baselines, incidents, final decisions, selected precedent IDs, reviews, and runtime policy across API restarts.
 
 ## Current progress
 
-Last reconciled with the repository on **2026-07-22**.
+Last reconciled with the repository on **2026-07-26**.
 
 | Capability | State |
 | --- | --- |
@@ -300,12 +341,12 @@ Last reconciled with the repository on **2026-07-22**.
 | Structured historical incident knowledge base | Complete |
 | Filtered retrieval, safe escalation, and retrieval-aware policy | Complete |
 | Optional SQLite persistence for baselines and incident evidence | Complete |
-| Per-sensor monitoring agent and automatic five-reading recovery | Complete |
+| Per-sensor Flow Warden agent, background enrichment, and automatic five-reading recovery | Complete |
 | Persistent human maintenance reports and operator-knowledge enrichment | Complete |
 | OpenTelemetry custom spans and SigNoz configuration | Complete — see [SigNoz setup](docs/signoz.md) |
 | Docker/Foundry packaging and clean-clone demo | Planned |
 
-The latest verified baseline is **48 passing Python tests**, a successful dashboard build, and a real TCP smoke run that delivered readings for all six assets.
+The latest verified baseline is **50 passing Python tests**, a successful dashboard build, and a real TCP smoke run that delivered readings for all six assets.
 
 ## Project structure
 
@@ -317,6 +358,8 @@ The latest verified baseline is **48 passing Python tests**, a successful dashbo
 │   ├── ingestion/          # TCP validation and reconnection
 │   ├── pipeline/           # Signal and transport-quality detectors
 │   ├── incidents/          # Aggregation, lifecycle, confidence, and policy
+│   ├── knowledge/          # Chroma corpus, indexer, and filtered retrieval
+│   ├── agent/              # Flow Warden tools, assessment loop, and Mistral client
 │   └── api/                # FastAPI runtime, REST routes, and SSE
 ├── dashboard/src/          # React operator dashboard and live API client
 ├── test/                   # Unit, contract, policy, API, and integration tests
@@ -329,7 +372,7 @@ The latest verified baseline is **48 passing Python tests**, a successful dashbo
 
 ```bash
 # Python tests
-uv run python -m unittest discover -v
+PYTHONPATH=src:iot-streaming-mock uv run python -m unittest discover -s test -v
 
 # Simulator TCP integration check
 cd iot-streaming-mock

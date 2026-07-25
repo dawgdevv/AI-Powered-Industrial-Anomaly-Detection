@@ -98,7 +98,7 @@ Set its time range to the last 15 minutes and filter every panel by
 | Detector activity | `iot.anomalies` | rate/sum | `detector.name` |
 | Knowledge grounding | `knowledge.retrievals` | rate/sum | `knowledge.outcome` |
 | Agent assessment latency | `agent.assessment.duration` | p95 | `agent.attempted_mode`, `agent.final_mode` |
-| Safe auto-resolution | `agent.auto_resolutions` | cumulative sum | `incident.category` |
+| Safe auto-resolution | `agent.auto_resolutions` | increase within series, then sum | none for one total; optionally `incident.category` |
 | Incident time to recovery | `incident.duration` | p95 | `incident.category` |
 
 The Logs Explorer receives correlated business events: `incident.detected`,

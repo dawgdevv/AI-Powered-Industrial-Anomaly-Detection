@@ -63,18 +63,18 @@ This checklist turns the project goals in [context.md](context.md), [PROBLEM.md]
 - [x] Return the top three precedents with raw Chroma distance and structured metadata.
 - [x] Handle empty retrieval results safely.
 - [x] Persist selected precedent IDs with the final decision.
-- [ ] Add a bounded LLM explanation layer with structured output.
-- [ ] Prevent the LLM from overriding the decision policy.
-- [ ] Escalate safely on model/provider failures.
+- [x] Add a bounded LiteLLM/Mistral explanation layer with structured output and deterministic fallback.
+- [x] Prevent the LLM from overriding the decision policy.
+- [x] Fall back safely when the model/provider is unavailable, slow, or returns invalid structured output.
 
 ## Observability and SigNoz
 
-- [ ] Create the `investigate_sensor_anomaly` root trace.
-- [ ] Instrument ingestion, validation, detectors, aggregation, retrieval, confidence calculation, LLM, policy, and escalation spans.
-- [ ] Propagate trace IDs through logs and API responses.
-- [ ] Emit sensor, anomaly, retrieval, decision, latency, token, and override metrics.
-- [ ] Send structured logs for validation failures, incidents, retrieval, recommendations, abstentions, and escalations.
-- [ ] Build Industrial Operations, Agent Decision Quality, and AI Pipeline Performance dashboards in SigNoz.
+- [x] Create a `sensor.process` root trace with detector, incident, retrieval, policy, agent, and recovery spans.
+- [x] Instrument the live detector, retrieval, policy, agent, and recovery path with OpenTelemetry.
+- [ ] Propagate trace IDs through API responses and dashboard deep links.
+- [x] Emit reading, anomaly, retrieval, agent-latency, auto-resolution, processing-duration, and incident-duration metrics.
+- [x] Send correlated structured logs for detected incidents, knowledge matches, assessments, and auto-resolutions.
+- [x] Build the Water Treatment Agent — Trust & Recovery SigNoz dashboard.
 - [ ] Configure safety-policy, sensor-silence, duplicate-burst, latency, error-rate, and abstention-rate alerts.
 - [ ] Implement one useful SigNoz MCP investigation workflow.
 
@@ -87,9 +87,9 @@ This checklist turns the project goals in [context.md](context.md), [PROBLEM.md]
 - [x] Build the dashboard successfully with Vite.
 - [x] Create FastAPI endpoints for fleet status, sensor detail, incident history, policy configuration, and review actions.
 - [x] Replace dashboard mock arrays with API snapshots and live SSE data.
-- [ ] Show detector outputs, retrieval evidence, confidence breakdown, and abstention reason.
+- [x] Show detector outputs, retrieval evidence, agent assessment, recovery state, and operator handoff in the active Flow Warden console.
 - [ ] Link each incident to its SigNoz trace.
-- [ ] Add a human-review queue and resolution workflow.
+- [x] Add a human maintenance-report workflow that can enrich local knowledge after a completed incident.
 
 ## Testing and Demo Readiness
 
@@ -97,14 +97,17 @@ This checklist turns the project goals in [context.md](context.md), [PROBLEM.md]
 - [x] Verify the dashboard production build.
 - [x] Add unit tests for spike, drift, missing-data, and duplicate detectors.
 - [x] Add ingestion validation and reconnect tests.
-- [ ] Add retrieval tests for known and novel incidents.
+- [x] Add filtered retrieval tests, known-scenario alignment tests, and safe no-precedent behavior.
 - [x] Add confidence-threshold and safety-policy tests.
 - [x] Add end-to-end tests for normal operation, transient faults, and data quality.
 - [ ] Add trace-creation verification.
-- [ ] Add Docker Compose, `.env.example`, Foundry configuration, and pinned dependencies.
+- [x] Add `.env.example` and a local SigNoz/Foundry setup guide.
+- [ ] Add project-owned Docker/Foundry packaging and pin production dependencies.
 - [ ] Verify a clean-clone, one-command demo.
 - [ ] Record a backup demo video.
 
 ## Next Milestone
 
-The highest-value next slice is: **bounded LLM explanation → end-to-end OpenTelemetry trace → SigNoz dashboards**. Retrieval-aware policy and restart-safe state are now in place.
+The highest-value remaining slice is: **clean-clone packaging and demo proof** —
+fast judge mode, trace/deep-link verification, alert rules, screenshots/video,
+and a reproducible one-command launch path.
