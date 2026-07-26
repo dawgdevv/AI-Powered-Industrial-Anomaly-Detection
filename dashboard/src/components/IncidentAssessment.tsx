@@ -18,6 +18,13 @@ function TraceLink({ incident }: { incident: Incident }) {
   return <a className="trace-link" href={`${signozBaseUrl}/trace/${incident.trace_id}`} target="_blank" rel="noreferrer"><span>OPEN TRACE IN SIGNOZ</span><code>{incident.trace_id.slice(0, 8)}…{incident.trace_id.slice(-6)}</code><em>↗</em></a>
 }
 
+function recoveryMessage(incident: Incident) {
+  if (incident.recovery_state === 'awaiting_knowledge') return 'Normal readings are holding. Flow Warden is waiting for the knowledge trace to finish before clearing this investigation.'
+  if (incident.recovery_state === 'observing_normal') return `Normal readings are consistent. Keeping the evidence visible for ${incident.recovery_stability_seconds ?? 8} seconds before closure.`
+  if (incident.agent_active) return 'Flow Warden is monitoring for stable normal readings, then will retain the completed evidence briefly before closure.'
+  return 'Recovery cannot be evaluated until the live stream resumes.'
+}
+
 function DiagnosisForm({ incident, onReview }: { incident: Incident; onReview: Props['onReview'] }) {
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -51,7 +58,7 @@ export function IncidentAssessment({ incident, resolvedIncident, sensor, onRevie
       <li className="trace-stage detected"><span className="trace-index">02</span><div><span className="trace-label">CONDITION DETECTED</span><b>{incident.detectors.length ? incident.detectors.map(display).join(' + ') : 'Condition under evaluation'}</b><p>{incident.decision ? `${display(incident.decision)} from live detector evidence and runtime policy.` : 'Policy decision is still being calculated.'}</p></div></li>
       <li className="trace-stage retrieval"><span className="trace-index">03</span><div><span className="trace-label">KNOWLEDGE MATCH</span><b>{precedent ? `${precedent.incident_id} · ${display(assessment?.likely_fault ?? precedent.fault_family)}` : 'No verified scenario match yet'}</b><p>{precedent ? precedent.summary : 'The agent will not name a fault without verified scenario evidence.'}</p><small>{precedent ? (precedent.source_kind === 'water_treatment_simulation' ? 'Curated water-treatment scenario' : display(precedent.source_kind)) : 'Retrieval remains evidence-gated'}</small></div></li>
       <li className="trace-stage assessment" aria-live="polite"><span className="trace-index">04</span><div><span className="trace-label">WARDEN ASSESSMENT</span><b>{assessment?.title ?? 'Evidence assessment in progress'}</b><p>{assessment?.explanation ?? 'Waiting for enough detector and scenario evidence to make a safe statement.'}</p><small>{modelLabel}</small></div></li>
-      <li className="trace-stage recovery" aria-live="polite"><span className="trace-index">05</span><div><span className="trace-label">RECOVERY WATCH</span><b>{incident.agent_active ? 'Monitoring live telemetry' : 'Waiting for new telemetry'}</b><p>{incident.agent_active ? 'The workflow closes after five consecutive healthy readings. The scenario will clear from this console once recovery is confirmed.' : 'Recovery cannot be evaluated until the live stream resumes.'}</p></div></li>
+      <li className="trace-stage recovery" aria-live="polite"><span className="trace-index">05</span><div><span className="trace-label">RECOVERY WATCH</span><b>{incident.agent_active ? display(incident.recovery_state ?? 'monitoring live telemetry') : 'Waiting for new telemetry'}</b><p>{recoveryMessage(incident)}</p></div></li>
     </ol>
     {incident.review ? <section className="trace-review"><span>OPERATOR DIAGNOSIS SAVED</span><b>{display(incident.review.outcome)}</b><p>{incident.review.notes}</p><small>{incident.review.knowledge_enriched ? 'Saved to local knowledge for future retrieval.' : 'Saved as an incident record.'}</small></section> : <section className="trace-handoff"><div><span>OPERATOR HANDOFF</span><b>Record the inspection finding</b><p>Confirmed repairs become labeled local knowledge for a future similar incident.</p></div><button className="agent-primary" type="button" onClick={() => setOpen((value) => !value)}>{open ? 'Close diagnosis workspace' : 'Record inspection finding'}<em>→</em></button></section>}
     {open && !incident.review ? <DiagnosisForm incident={incident} onReview={onReview} /> : null}

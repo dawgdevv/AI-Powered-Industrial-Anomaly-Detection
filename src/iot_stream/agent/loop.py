@@ -28,8 +28,9 @@ class IncidentMonitoringAgent:
     application safety rule, not a model decision.
     """
 
-    def __init__(self, healthy_readings_to_resolve: int = 5):
+    def __init__(self, healthy_readings_to_resolve: int = 5, recovery_stability_seconds: float = 8.0):
         self.healthy_readings_to_resolve = healthy_readings_to_resolve
+        self.recovery_stability_seconds = max(0.0, recovery_stability_seconds)
         self._model = MistralExplanationClient.from_env()
 
     @property
@@ -79,6 +80,8 @@ class IncidentMonitoringAgent:
     def activate(self, incident: Incident, workflow: dict[str, float | int]) -> None:
         workflow.setdefault("started_at", incident.first_seen)
         workflow.setdefault("healthy_reading_count", 0)
+        workflow.setdefault("healthy_since", None)
+        workflow.setdefault("recovery_state", "watching")
 
     def observe(
         self,
@@ -87,6 +90,7 @@ class IncidentMonitoringAgent:
         reading: SensorReading,
         events: list[AnomalyEvent],
         equipment_healthy: bool | None = None,
+        knowledge_ready: bool = True,
     ) -> RecoveryUpdate:
         with span(
             "agent.monitor_recovery",
@@ -97,6 +101,8 @@ class IncidentMonitoringAgent:
             has_equipment_event = any(event.detector in {"spike", "drift"} for event in events)
             if has_equipment_event or equipment_healthy is False or reading.vibration is None:
                 workflow["healthy_reading_count"] = 0
+                workflow["healthy_since"] = None
+                workflow["recovery_state"] = "watching"
                 active_span.set_attribute("agent.recovery_reset", True)
                 active_span.set_attribute("agent.recovery_state", "watching")
                 return RecoveryUpdate(incident.incident_id, 0)
@@ -106,8 +112,24 @@ class IncidentMonitoringAgent:
                 int(workflow.get("healthy_reading_count", 0)) + 1,
             )
             workflow["healthy_reading_count"] = count
-            resolved = count >= self.healthy_readings_to_resolve
+            healthy_since = workflow.get("healthy_since")
+            if not isinstance(healthy_since, (int, float)):
+                healthy_since = reading.timestamp
+                workflow["healthy_since"] = healthy_since
+            stable_seconds = max(0.0, reading.timestamp - healthy_since)
+            enough_readings = count >= self.healthy_readings_to_resolve
+            enough_time = stable_seconds >= self.recovery_stability_seconds
+            resolved = enough_readings and enough_time and knowledge_ready
+            recovery_state = (
+                "awaiting_knowledge" if enough_readings and not knowledge_ready
+                else "observing_normal" if enough_readings and not enough_time
+                else "resolved" if resolved
+                else "stabilizing"
+            )
+            workflow["recovery_state"] = recovery_state
             active_span.set_attribute("agent.healthy_reading_count", count)
+            active_span.set_attribute("agent.healthy_stable_seconds", stable_seconds)
+            active_span.set_attribute("agent.knowledge_ready", knowledge_ready)
             active_span.set_attribute("agent.auto_resolved", resolved)
-            active_span.set_attribute("agent.recovery_state", "resolved" if resolved else "stabilizing")
+            active_span.set_attribute("agent.recovery_state", recovery_state)
             return RecoveryUpdate(incident.incident_id, count, resolved)

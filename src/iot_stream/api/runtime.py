@@ -34,6 +34,7 @@ from iot_stream.telemetry import (
 
 CONFIGURED_FLEET_SIZE = 6
 HEALTHY_READINGS_TO_RESOLVE = 5
+DEFAULT_RECOVERY_STABILITY_SECONDS = 8.0
 _DEFAULT_DATABASE = object()
 
 
@@ -56,6 +57,7 @@ class RuntimeStore:
         self.reviews: dict[str, dict[str, object]] = {}
         self.agent_assessments: dict[str, dict[str, object]] = {}
         self.policy_config = PolicyConfig()
+        self.recovery_stability_seconds = DEFAULT_RECOVERY_STABILITY_SECONDS
         self.stream_status = "connecting"
         self.stream_error: str | None = None
         self.last_reading_at: float | None = None
@@ -112,6 +114,8 @@ class RuntimeStore:
             "agent_active": incident.incident_id in self.workflows and incident.state is not IncidentState.RESOLVED,
             "healthy_reading_count": workflow.get("healthy_reading_count", 0),
             "healthy_readings_required": HEALTHY_READINGS_TO_RESOLVE,
+            "recovery_state": workflow.get("recovery_state", "watching"),
+            "recovery_stability_seconds": self.recovery_stability_seconds,
             "automatically_resolved": incident.state is IncidentState.RESOLVED and "agent_recovery_confirmed" in incident.reason_codes,
             "trace_id": incident.trace_id,
         }
@@ -235,7 +239,14 @@ class StreamRuntime:
         self.store = RuntimeStore()
         self.detector_sets: dict[str, DeviceDetectorSet] = {}
         self.aggregator = IncidentAggregator()
-        self.agent = IncidentMonitoringAgent(HEALTHY_READINGS_TO_RESOLVE)
+        recovery_stability_seconds = float(
+            os.getenv("AGENT_RECOVERY_STABILITY_SECONDS", str(DEFAULT_RECOVERY_STABILITY_SECONDS))
+        )
+        self.agent = IncidentMonitoringAgent(
+            HEALTHY_READINGS_TO_RESOLVE,
+            recovery_stability_seconds=recovery_stability_seconds,
+        )
+        self.store.recovery_stability_seconds = self.agent.recovery_stability_seconds
         self.policy = self._build_policy(self.store.policy_config)
         if database is _DEFAULT_DATABASE:
             self.database = RuntimeDatabase(Path(os.getenv("RUNTIME_DB_PATH", "data/runtime.sqlite3")))
@@ -469,7 +480,12 @@ class StreamRuntime:
         workflow = self.store.workflows.get(incident.incident_id)
         if workflow is None:
             return
-        update = self.agent.observe(incident, workflow, reading, events, equipment_healthy)
+        retrieval_task = self._retrieval_tasks.get(incident.incident_id)
+        knowledge_ready = retrieval_task is None or retrieval_task.done()
+        update = self.agent.observe(
+            incident, workflow, reading, events, equipment_healthy,
+            knowledge_ready=knowledge_ready,
+        )
         event_name = "incident.recovery_updated"
         if update.resolved:
             incident.state = IncidentState.RESOLVED

@@ -62,7 +62,7 @@ class StreamRuntimeTests(unittest.IsolatedAsyncioTestCase):
         incident = runtime.aggregator.aggregate(anomaly("spike", 1))
         runtime.store.incidents[incident.incident_id] = incident
         runtime._activate_agent(incident)
-        for sequence in range(2, 7):
+        for sequence in range(2, 11):
             await runtime._agent_observe_recovery(reading(sequence, vibration=0.2), [])
         snapshot = runtime.store.incident_snapshot(incident)
         self.assertEqual(snapshot["state"], "RESOLVED")
@@ -86,7 +86,7 @@ class StreamRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("vibration", retriever.query.text)
         self.assertIn("temperature", retriever.query.text)
 
-        for sequence in range(11, 16):
+        for sequence in range(11, 20):
             await runtime.process_reading(reading(sequence, vibration=0.2))
         snapshot = runtime.store.incident_snapshot(active)
         self.assertEqual(snapshot["state"], "RESOLVED")

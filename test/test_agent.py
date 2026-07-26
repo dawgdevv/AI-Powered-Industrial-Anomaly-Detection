@@ -32,6 +32,24 @@ class AgentTests(unittest.TestCase):
             detectors.check(latest)
         self.assertFalse(detectors.equipment_is_healthy(latest))
 
+    def test_agent_keeps_evidence_until_retrieval_and_stable_recovery_complete(self):
+        incident = Incident(
+            incident_id="INC-1", device_id="sensor-1",
+            category=IncidentCategory.EQUIPMENT_CONDITION, state=IncidentState.INVESTIGATING,
+            first_seen=1, last_seen=1, detectors={"spike"}, affected_reading_count=1,
+        )
+        agent = IncidentMonitoringAgent(healthy_readings_to_resolve=5, recovery_stability_seconds=2)
+        workflow: dict[str, object] = {}
+        agent.activate(incident, workflow)
+        for sequence in range(1, 6):
+            update = agent.observe(incident, workflow, reading(sequence), [], knowledge_ready=False)
+        self.assertFalse(update.resolved)
+        self.assertEqual(workflow["recovery_state"], "awaiting_knowledge")
+
+        update = agent.observe(incident, workflow, reading(6), [], knowledge_ready=True)
+        self.assertTrue(update.resolved)
+        self.assertEqual(workflow["recovery_state"], "resolved")
+
 
 if __name__ == "__main__":
     unittest.main()

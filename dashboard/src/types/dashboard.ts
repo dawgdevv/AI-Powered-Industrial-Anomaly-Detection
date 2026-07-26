@@ -37,6 +37,8 @@ export type Incident = {
   reason_codes: string[]
   agent_active: boolean
   automatically_resolved: boolean
+  recovery_state?: 'watching' | 'stabilizing' | 'awaiting_knowledge' | 'observing_normal' | 'resolved'
+  recovery_stability_seconds?: number
   trace_id?: string | null
   retrieved_incident_ids?: string[]
   retrieval_top_distance?: number | null

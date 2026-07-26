@@ -35,7 +35,7 @@ The LLM does not decide whether maintenance should be recommended. It refines an
 5. Retrieves only relevant historical incidents after filtering by equipment, sensor type, and incident category.
 6. Calculates confidence from anomaly strength, detector agreement, retrieval similarity and margin, precedent verification, persistence, and data quality.
 7. Produces a safe detector-only assessment immediately, then enriches the same incident with a filtered Chroma match and optional bounded Mistral explanation.
-8. Automatically resolves an equipment software incident only after five consecutive healthy readings; data-quality incidents resolve after a quiet period.
+8. Retains the knowledge trace until retrieval finishes, then automatically resolves an equipment software incident only after five consecutive healthy readings and an 8-second stable-normal observation window; data-quality incidents resolve after a quiet period.
 9. Traces the pipeline through OpenTelemetry and SigNoz, including detector activity, retrieval, agent latency, fallback provenance, and recovery time.
 10. Records operator findings so confirmed resolutions can improve local knowledge for future retrieval.
 
@@ -150,7 +150,7 @@ sensor.process
 │   ├── knowledge.retrieve
 │   └── policy.re_evaluate
 ├── agent.explain                        Mistral or deterministic fallback
-└── agent.monitor_recovery               five healthy readings → resolved
+└── agent.monitor_recovery               retrieval complete + stable normal → resolved
 ```
 
 Trace attributes connect the equipment, incident, detectors, retrieval result,
@@ -204,7 +204,7 @@ The currently implemented routes are listed in [Current runnable system](#curren
 
 ## Current runnable system
 
-The repository contains streaming, detection, a per-sensor monitoring agent, source-backed Chroma retrieval, safe policy, SQLite state, API, and a live dashboard. The agent opens on an anomaly, explains the available evidence, watches every subsequent reading, and automatically resolves the software incident after five consecutive healthy readings. Operators only report what they found and how they fixed it; confirmed reports are saved as clearly labelled local knowledge and never override verified evidence or runtime policy.
+The repository contains streaming, detection, a per-sensor monitoring agent, source-backed Chroma retrieval, safe policy, SQLite state, API, and a live dashboard. The agent opens on an anomaly, explains the available evidence, watches every subsequent reading, and automatically resolves the software incident only after retrieval completes, five healthy readings arrive, and normal telemetry remains stable for the configured observation window. Operators only report what they found and how they fixed it; confirmed reports are saved as clearly labelled local knowledge and never override verified evidence or runtime policy.
 
 The agent is modular and custom-built: it exposes three read-only tools (`get_incident_context`, `get_retrieved_precedents`, and `get_recovery_status`) to a bounded Mistral explanation call through LiteLLM. If the model or gateway is unavailable, it produces the same safe deterministic assessment instead of blocking the sensor pipeline.
 

@@ -62,8 +62,10 @@ Run the telemetry simulator in faulty mode, then open **Services →
 When the detector finds an equipment condition, the immediate safety decision
 is recorded first; semantic retrieval and the optional Mistral refinement run
 in the background so an embedding or model request cannot pause ingestion.
-The recovery span records the healthy-reading count and whether the agent
-automatically closed the software incident after five healthy readings.
+The recovery span records the healthy-reading count, the stable-normal window,
+and whether the agent automatically closed the software incident only after
+retrieval finished and five healthy readings were sustained for the configured
+observation window.
 
 ## 4. The demo trace to show
 
